@@ -229,6 +229,11 @@
 
       <h3>Who arranges the loan?</h3>
       <div class="choicerow" id="lender-row"></div>
+      <label class="check"><input type="checkbox" id="ask-schemes" />
+        Ask about government schemes <span style="color:#9fb0c8; font-size:12.5px">— brokers raise these automatically; a bank teller answers exactly what you ask and nothing more</span></label>
+
+      <h3>Your legal team (conveyancing)</h3>
+      <div class="choicerow" id="solicitor-row"></div>
 
       <div style="margin-top: 16px;">
         <button class="btn" id="preapprove-btn">Apply for pre-approval →</button>
@@ -252,12 +257,17 @@
         <div id="lp-report-body"></div>
       </div>
       <div class="report-box legal hidden" id="lp-review">
-        <div class="rt">Solicitor — contract &amp; Section 32 review</div>
+        <div class="rt">Contract &amp; Section 32 review</div>
         <div id="lp-review-body"></div>
+      </div>
+      <div class="report-box hidden" id="lp-oc" style="background: rgba(200,140,60,0.14); border-color: rgba(255,190,110,0.4);">
+        <div class="rt" style="color: #ffbe6e;">Owners corporation records</div>
+        <div id="lp-oc-body"></div>
       </div>
       <div class="btnrow">
         <button class="btn secondary" id="lp-report-btn"></button>
         <button class="btn secondary" id="lp-review-btn"></button>
+        <button class="btn secondary hidden" id="lp-oc-btn"></button>
       </div>
       <div class="btnrow">
         <button class="btn" id="lp-buy-btn"></button>
@@ -298,6 +308,9 @@
           </div>
         </div>
       </div>
+      <h3 style="margin-top: 2px;">Loan structure</h3>
+      <div class="choicerow" id="loantype-row"></div>
+      <p class="sub" id="loan-repay" style="margin-bottom: 4px;"></p>
       <div class="btnrow">
         <button class="btn" id="contract-sign">✍️ Sign the contract</button>
         <button class="btn secondary hidden" id="contract-back">Hold on…</button>
