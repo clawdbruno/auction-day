@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auction Day — Wattlebrook</title>
+  <style>
+    :root {
+      --navy: #0f2038;
+      --navy-80: rgba(15, 32, 56, 0.88);
+      --gold: #ffcd00;
+      --green: #00843d;
+      --red: #d64541;
+      --paper: #f7f4ee;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0c1626; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--paper); }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 40; }
+    .hidden { display: none !important; }
+
+    .card {
+      background: var(--navy-80);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 205, 0, 0.35);
+      border-radius: 14px;
+      padding: 26px 30px;
+      max-width: 660px;
+      width: min(94vw, 660px);
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+    }
+    .card h1 { font-size: 28px; letter-spacing: 0.5px; }
+    .card h1 .accent { color: var(--gold); }
+    .card h2 { font-size: 20px; margin-bottom: 4px; }
+    .card h3 { font-size: 14px; margin: 14px 0 6px; color: #cdd8e6; text-transform: uppercase; letter-spacing: 1px; }
+    .card .sub { color: #b8c4d6; font-size: 13.5px; margin-top: 6px; line-height: 1.5; }
+    .card p { line-height: 1.55; font-size: 14.5px; }
+
+    .btn {
+      display: inline-block; cursor: pointer; border: none; border-radius: 8px;
+      padding: 11px 20px; font-size: 15px; font-weight: 700; letter-spacing: 0.3px;
+      background: var(--gold); color: #1a1a06; transition: transform 0.06s ease, filter 0.12s ease;
+    }
+    .btn:hover { filter: brightness(1.08); }
+    .btn:active { transform: scale(0.97); }
+    .btn.secondary { background: rgba(255,255,255,0.12); color: var(--paper); border: 1px solid rgba(255,255,255,0.25); }
+    .btn.danger { background: var(--red); color: #fff; }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; filter: none; }
+
+    .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+    .stat { background: rgba(255,255,255,0.06); border-radius: 9px; padding: 10px 12px; }
+    .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #9fb0c8; }
+    .stat .value { font-size: 18px; font-weight: 700; margin-top: 3px; }
+    .stat .value.gold { color: var(--gold); }
+
+    /* HUD */
+    #hud {
+      position: fixed; top: 14px; left: 14px; z-index: 20;
+      background: var(--navy-80); border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.65;
+      min-width: 230px; pointer-events: none;
+    }
+    #hud .row { display: flex; justify-content: space-between; gap: 18px; }
+    #hud .row .k { color: #9fb0c8; }
+    #hud .row .v { font-weight: 700; }
+    #hud .week { color: var(--gold); font-weight: 800; text-transform: uppercase; font-size: 12px; letter-spacing: 1.2px; margin-bottom: 4px; }
+    #journey { display: flex; gap: 5px; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 7px; }
+    #journey .step { flex: 1; text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 4px 2px; border-radius: 5px; background: rgba(255,255,255,0.06); color: #8b98ab; }
+    #journey .step.done { background: rgba(0,132,61,0.25); color: #4cd07d; }
+    #journey .step.now { background: rgba(255,205,0,0.18); color: var(--gold); }
+
+    #crosshair {
+      position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+      border-radius: 50%; background: rgba(255,255,255,0.85); z-index: 15; pointer-events: none;
+      box-shadow: 0 0 4px rgba(0,0,0,0.8);
+    }
+    #prompt {
+      position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%); z-index: 15;
+      background: var(--navy-80); border: 1px solid rgba(255,205,0,0.5); color: var(--paper);
+      padding: 9px 18px; border-radius: 999px; font-size: 14px; pointer-events: none;
+    }
+    #prompt b { color: var(--gold); }
+    #hint {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 12;
+      color: rgba(255,255,255,0.65); font-size: 12.5px; pointer-events: none; text-align: center;
+    }
+
+    /* choice chips */
+    .choicerow { display: flex; gap: 8px; margin: 6px 0 4px; flex-wrap: wrap; }
+    .choice { flex: 1; min-width: 105px; cursor: pointer; text-align: center; padding: 9px 8px; border-radius: 9px;
+      border: 1.5px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); font-size: 13px; font-weight: 600; }
+    .choice small { display: block; font-weight: 400; font-size: 11px; color: #9fb0c8; margin-top: 2px; }
+    .choice.sel { border-color: var(--gold); background: rgba(255,205,0,0.14); color: var(--gold); }
+    .choice.sel small { color: rgba(255,205,0,0.75); }
+    label.check { display: flex; align-items: center; gap: 10px; margin: 10px 0; cursor: pointer; font-size: 14px; }
+    label.check input { width: 18px; height: 18px; accent-color: var(--gold); }
+
+    .letter {
+      background: #f7f4ee; color: #24303f; border-radius: 10px; padding: 16px 18px; margin: 14px 0 6px;
+      font-size: 13.5px; line-height: 1.55; border-left: 5px solid var(--green);
+    }
+    .letter .lh { font-weight: 800; font-size: 15px; margin-bottom: 6px; }
+    .letter .big { font-size: 24px; font-weight: 900; color: var(--green); }
+    .letter .fine { font-size: 11.5px; color: #6b7684; margin-top: 8px; font-style: italic; }
+
+    /* Listing panel */
+    .listing-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .pricepill { background: rgba(255,205,0,0.15); border: 1px solid rgba(255,205,0,0.5); color: var(--gold);
+      padding: 4px 12px; border-radius: 999px; font-weight: 800; font-size: 14px; white-space: nowrap; }
+    .pricepill.private { background: rgba(0,132,61,0.18); border-color: rgba(76,208,125,0.55); color: #4cd07d; }
+    .features { display: flex; gap: 16px; margin: 12px 0; font-size: 14px; color: #d7dfea; }
+    .features span b { color: #fff; }
+    .desc { font-style: italic; color: #c9d3e2; border-left: 3px solid rgba(255,205,0,0.5); padding-left: 12px; margin: 12px 0; }
+    .report-box { background: rgba(0,132,61,0.14); border: 1px solid rgba(76,208,125,0.4); border-radius: 9px; padding: 12px 14px; margin: 10px 0; font-size: 13.5px; line-height: 1.5; }
+    .report-box .rt { font-weight: 800; color: #4cd07d; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; margin-bottom: 5px; }
+    .report-box.legal { background: rgba(90,120,200,0.14); border-color: rgba(140,170,255,0.4); }
+    .report-box.legal .rt { color: #9db8ff; }
+    .btnrow { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+    /* Auction */
+    #auction-panel {
+      position: fixed; right: 16px; top: 16px; bottom: 16px; width: min(400px, 92vw); z-index: 30;
+      background: var(--navy-80); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,205,0,0.4); border-radius: 14px;
+      display: flex; flex-direction: column; padding: 20px; gap: 12px;
+    }
+    #auction-panel h2 { font-size: 18px; }
+    #auction-addr { color: #9fb0c8; font-size: 13px; }
+    #current-bid-box { text-align: center; padding: 10px 0 8px; }
+    #current-bid { font-size: 38px; font-weight: 900; color: var(--gold); letter-spacing: -1px; }
+    #bid-leader { font-size: 13px; color: #b8c4d6; margin-top: 2px; }
+    #bid-leader.you { color: #4cd07d; font-weight: 700; }
+    #auction-log {
+      flex: 1; overflow-y: auto; background: rgba(0,0,0,0.28); border-radius: 9px;
+      padding: 10px 12px; font-size: 13px; line-height: 1.7; min-height: 80px;
+    }
+    #auction-log .auctioneer { color: var(--gold); }
+    #auction-log .you { color: #4cd07d; }
+    #auction-log .rival { color: #8fb7ff; }
+    #auction-log .system { color: #8b98ab; font-style: italic; }
+    .bidbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .bidbtns .btn { padding: 12px 8px; font-size: 14.5px; }
+    #max-note { font-size: 12px; color: #9fb0c8; text-align: center; }
+    #max-note b { color: var(--gold); }
+
+    #toast {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 60;
+      background: var(--navy-80); border: 1px solid rgba(255,205,0,0.5); max-width: min(92vw, 560px);
+      padding: 12px 24px; border-radius: 10px; font-size: 14.5px; font-weight: 600; line-height: 1.45;
+      transition: opacity 0.4s ease; opacity: 0; pointer-events: none;
+    }
+
+    .verdict { font-size: 16px; font-weight: 800; padding: 12px 16px; border-radius: 9px; margin: 14px 0; line-height: 1.45; }
+    .verdict.good { background: rgba(0,132,61,0.2); border: 1px solid #4cd07d; color: #4cd07d; }
+    .verdict.ok { background: rgba(255,205,0,0.12); border: 1px solid var(--gold); color: var(--gold); }
+    .verdict.bad { background: rgba(214,69,65,0.16); border: 1px solid var(--red); color: #ff8f8a; }
+
+    table.costs { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+    table.costs td { padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.09); }
+    table.costs td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    table.costs tr.total td { border-top: 2px solid rgba(255,205,0,0.6); border-bottom: none; font-weight: 800; color: var(--gold); font-size: 15px; }
+
+    /* contract */
+    .contract {
+      background: #f7f4ee; color: #2a3440; border-radius: 10px; padding: 18px 20px; margin: 12px 0;
+      font-size: 13.5px; line-height: 1.6;
+    }
+    .contract h4 { font-size: 15px; text-align: center; letter-spacing: 1px; margin-bottom: 10px; color: #1c2733; }
+    .contract .crow { display: flex; justify-content: space-between; border-bottom: 1px dotted #b9c0c9; padding: 4px 0; }
+    .contract .crow b { font-variant-numeric: tabular-nums; }
+    .contract .clause { background: #fff6d8; border-left: 4px solid #d4a900; padding: 8px 10px; margin: 10px 0 4px; font-size: 12.5px; }
+    .contract .clause.danger { background: #fde8e7; border-left-color: var(--red); }
+    #sig-area { margin-top: 12px; display: flex; align-items: flex-end; gap: 14px; }
+    #sig-canvas { background: #fff; border-bottom: 2px solid #2a3440; border-radius: 4px; }
+    #sig-label { font-size: 11px; color: #6b7684; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud" class="hidden">
+    <div class="week" id="hud-week">Week 1</div>
+    <div class="row"><span class="k">Savings</span><span class="v" id="hud-savings"></span></div>
+    <div class="row"><span class="k">Pre-approved loan</span><span class="v" id="hud-loan"></span></div>
+    <div class="row"><span class="k">Max purchase</span><span class="v" id="hud-max" style="color: var(--gold)"></span></div>
+    <div class="row"><span class="k">Homes left</span><span class="v" id="hud-homes"></span></div>
+    <div id="journey">
+      <div class="step" data-step="finance">Finance</div>
+      <div class="step" data-step="research">Research</div>
+      <div class="step" data-step="buy">Buy</div>
+      <div class="step" data-step="settle">Settle</div>
+    </div>
+  </div>
+
+  <div id="crosshair" class="hidden"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="hint" class="hidden">WASD move &nbsp;·&nbsp; mouse look &nbsp;·&nbsp; walk through the gate and front door to inspect inside &nbsp;·&nbsp; <b>E</b> for the listing &nbsp;·&nbsp; ESC frees the cursor</div>
+
+  <!-- START / FINANCE WIZARD -->
+  <div id="start-screen" class="overlay">
+    <div class="card">
+      <h1>AUCTION <span class="accent">DAY</span></h1>
+      <p class="sub">Banksia Street, Wattlebrook. Six homes: three going under the hammer, three for private sale.
+        You're a first home buyer, and the game plays by the real rules — no finance, no keys.
+        Step one happens before you ever see a house: <b>getting your loan pre-approved.</b></p>
+
+      <h3>Market conditions</h3>
+      <div class="choicerow" id="difficulty-row">
+        <div class="choice" data-diff="cooling">Cooling<small>fewer rival buyers</small></div>
+        <div class="choice sel" data-diff="balanced">Balanced<small>a fair fight</small></div>
+        <div class="choice" data-diff="hot">Hot market<small>FOMO everywhere</small></div>
+      </div>
+      <label class="check"><input type="checkbox" id="fhb-check" checked />
+        First home buyer <span style="color:#9fb0c8; font-size:12.5px">(stamp duty exempt ≤ $600k, concession to $750k — VIC, approx.)</span></label>
+
+      <h3>Your household</h3>
+      <div class="choicerow" id="income-row"></div>
+      <div class="choicerow" id="expense-row"></div>
+      <div class="choicerow">
+        <div class="choicerow" id="card-row" style="flex: 2; margin: 0;"></div>
+        <div class="choice" id="hecs-chip" style="flex: 1;">HECS debt<small>$34k still owing</small></div>
+      </div>
+
+      <h3>Who arranges the loan?</h3>
+      <div class="choicerow" id="lender-row"></div>
+
+      <div style="margin-top: 16px;">
+        <button class="btn" id="preapprove-btn">Apply for pre-approval →</button>
+      </div>
+      <div id="letter" class="letter hidden"></div>
+      <button class="btn hidden" id="start-btn" style="margin-top: 10px;">Start inspecting — savings $180,000 &nbsp;→</button>
+    </div>
+  </div>
+
+  <!-- LISTING -->
+  <div id="listing-panel" class="overlay hidden">
+    <div class="card">
+      <div class="listing-head">
+        <div><h2 id="lp-address"></h2><div class="sub" id="lp-style"></div></div>
+        <div class="pricepill" id="lp-guide"></div>
+      </div>
+      <div class="features" id="lp-features"></div>
+      <p class="desc" id="lp-desc"></p>
+      <div class="report-box hidden" id="lp-report">
+        <div class="rt">Building &amp; pest report + independent valuation</div>
+        <div id="lp-report-body"></div>
+      </div>
+      <div class="report-box legal hidden" id="lp-review">
+        <div class="rt">Solicitor — contract &amp; Section 32 review</div>
+        <div id="lp-review-body"></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn secondary" id="lp-report-btn"></button>
+        <button class="btn secondary" id="lp-review-btn"></button>
+      </div>
+      <div class="btnrow">
+        <button class="btn" id="lp-buy-btn"></button>
+        <button class="btn secondary" id="lp-close-btn">Keep looking</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OFFER (private sale) -->
+  <div id="offer-panel" class="overlay hidden">
+    <div class="card">
+      <h2 id="offer-title"></h2>
+      <p class="sub" id="offer-sub"></p>
+      <h3>Your offer</h3>
+      <div class="choicerow" id="offer-amounts"></div>
+      <label class="check"><input type="checkbox" id="offer-stf" checked />
+        Subject to finance <span style="color:#9fb0c8; font-size:12.5px">— if the bank's valuation lets you down, you can walk away with your deposit. Vendors like offers without it.</span></label>
+      <p class="sub">Private sales come with a 3-business-day cooling-off period (0.2% penalty). Auctions don't. This is your safest way to buy — use it.</p>
+      <div class="btnrow">
+        <button class="btn" id="offer-submit"></button>
+        <button class="btn secondary" id="offer-cancel">Not yet</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTRACT -->
+  <div id="contract-panel" class="overlay hidden">
+    <div class="card">
+      <h2 id="contract-title">Contract of Sale</h2>
+      <div class="contract">
+        <h4>CONTRACT OF SALE OF REAL ESTATE</h4>
+        <div id="contract-rows"></div>
+        <div id="contract-clauses"></div>
+        <div id="sig-area">
+          <div>
+            <canvas id="sig-canvas" width="240" height="64"></canvas>
+            <div id="sig-label">Purchaser's signature</div>
+          </div>
+        </div>
+      </div>
+      <div class="btnrow">
+        <button class="btn" id="contract-sign">✍️ Sign the contract</button>
+        <button class="btn secondary hidden" id="contract-back">Hold on…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GENERIC DIALOG (agent calls, cooling off, valuation drama, warnings) -->
+  <div id="dialog-panel" class="overlay hidden">
+    <div class="card">
+      <h2 id="dlg-title"></h2>
+      <div class="sub" id="dlg-body" style="font-size: 14.5px;"></div>
+      <div class="btnrow" id="dlg-btns"></div>
+    </div>
+  </div>
+
+  <!-- AUCTION -->
+  <div id="auction-panel" class="hidden">
+    <div><h2 id="auction-title">🔨 Auction in progress</h2><div id="auction-addr"></div></div>
+    <div id="current-bid-box">
+      <div id="current-bid">—</div>
+      <div id="bid-leader">Waiting for an opening bid…</div>
+    </div>
+    <div id="auction-log"></div>
+    <div class="bidbtns">
+      <button class="btn" data-inc="25000">+ $25,000</button>
+      <button class="btn" data-inc="10000">+ $10,000</button>
+      <button class="btn" data-inc="5000">+ $5,000</button>
+      <button class="btn" data-inc="1000">+ $1,000</button>
+    </div>
+    <div id="max-note"></div>
+  </div>
+
+  <!-- RESULT / SETTLEMENT -->
+  <div id="result-panel" class="overlay hidden">
+    <div class="card">
+      <h2 id="res-title"></h2>
+      <div class="sub" id="res-sub"></div>
+      <div id="res-verdict" class="verdict hidden"></div>
+      <div id="res-costs"></div>
+      <div class="btnrow">
+        <button class="btn" id="res-continue"></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
