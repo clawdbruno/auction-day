@@ -133,7 +133,7 @@ export function settlement(price, savings, preApproval, firstHomeBuyer, valCap =
   const secured = Math.min(price, valCap ?? price);
   const loan = Math.min(preApproval, Math.floor(secured * 0.95));
   const duty = stampDuty(price, firstHomeBuyer);
-  const insurance = fhbg ? 0 : lmi(loan, secured);
+  const insurance = (fhbg || opts.guarantor) ? 0 : lmi(loan, secured);
   const grant = fhog ? FHOG_AMOUNT : 0;
   const cashNeeded = price - loan + duty + insurance + conveyancing + SETTLEMENT_ADJUSTMENTS - grant;
   return {

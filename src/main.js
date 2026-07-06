@@ -36,6 +36,12 @@ const game = {
   pendingContract: null, // { listing, price, method, stf }
   offerRound: 0,
   fhbgCapWarned: false,
+  guarantor: false,
+  marketGrowth: 1.015,
+  marketIndex: 1,
+  rateRiseDone: false,
+  rateRisePending: false,
+  purchase: null, // filled at settlement, feeds the epilogue
 };
 
 const listings = LISTINGS.map((l) => ({ ...l }));
@@ -49,11 +55,13 @@ const settleOpts = (l) => ({
   conveyancing: game.solicitor.conveyancing,
   fhbg: game.schemes.fhbg,
   fhog: !!(l?.isNew) && game.fhb,
+  guarantor: game.guarantor,
 });
 const playerMax = (l = null) => maxPurchase(game.savings, game.preApproval, game.fhb, {
   fhbg: game.schemes.fhbg,
   conveyancing: game.solicitor.conveyancing,
   fhog: !!(l?.isNew) && game.fhb,
+  guarantor: game.guarantor,
 });
 
 // ---------- three.js scene ----------
@@ -203,6 +211,10 @@ $('hecs-chip').addEventListener('click', () => {
   $('hecs-chip').classList.toggle('sel');
   hide($('letter')); hide($('start-btn'));
 });
+$('guarantor-chip').addEventListener('click', () => {
+  $('guarantor-chip').classList.toggle('sel');
+  hide($('letter')); hide($('start-btn'));
+});
 $('ask-schemes').addEventListener('change', () => { hide($('letter')); hide($('start-btn')); });
 document.querySelectorAll('#difficulty-row .choice').forEach((el) => {
   el.addEventListener('click', () => {
@@ -230,11 +242,14 @@ function applyForPreApproval() {
   game.household = inc.household;
   game.solicitor = SOLICITORS[selIdx('solicitor-row')];
 
-  // First Home Guarantee: income caps, and someone has to actually raise it
+  game.guarantor = $('guarantor-chip').classList.contains('sel');
+
+  // First Home Guarantee: income caps, someone has to raise it, and it doesn't stack with a guarantor
   const incomeOk = inc.value <= FHBG_INCOME_CAP[inc.household];
   const raised = lender === 'broker' || askedSchemes;
-  game.schemes.fhbg = game.fhb && incomeOk && raised;
+  game.schemes.fhbg = game.fhb && incomeOk && raised && !game.guarantor;
   game.schemes.fhbgWhy = !game.fhb ? ''
+    : game.guarantor ? `Not used — you're going the family-guarantee route instead. The two don't combine; LMI is waived either way, the difference is whose house carries the risk.`
     : !incomeOk ? `Household income ${fmt(inc.value)} exceeds the ${fmt(FHBG_INCOME_CAP[inc.household])} cap — not eligible.`
     : !raised ? `You were eligible, but nobody mentioned it. The teller answered exactly what you asked. (Tick “ask about government schemes”, or use a broker.)`
     : `Eligible ✓ — buy at or under ${fmt(FHBG_PRICE_CAP)} with just 5% deposit and NO lenders mortgage insurance. Go over the cap and LMI comes straight back.`;
@@ -251,6 +266,7 @@ function applyForPreApproval() {
     ${cardLimit ? `<br>Your ${fmt(cardLimit)} credit card limit cost you ~${fmt(cardLimit * 3.8)} of borrowing power — lenders assess the limit, not the balance.` : ''}
     ${hecs ? `<br>HECS trimmed your capacity too — repayments count as an expense.` : ''}
     <br><br><b>First Home Guarantee:</b> ${game.schemes.fhbgWhy || 'n/a (not a first home buyer).'}
+    ${game.guarantor ? `<br><b>Family guarantee:</b> in place ✓ — your parents' equity secures the top slice of the loan, so LMI is waived at any LVR. They signed after independent legal advice (the bank insists). Their home is exposed until your equity passes ~20%.` : ''}
     <br><b>First Home Owner Grant:</b> $10,000 — but only for a NEW home under ${fmt(FHOG_PRICE_CAP)}. Established houses don't qualify, no matter what your uncle reckons.
     <div class="fine">Valid 90 days. Conditional on a satisfactory valuation of the property you buy.
     While you waited, Banksia Street's prices moved roughly +${growth}%. The market doesn't wait for paperwork.</div>`;
@@ -799,16 +815,45 @@ function backToStreet() {
 
 function advanceWeek() {
   game.week += 1;
+  const g = game.marketGrowth;
+  game.marketIndex *= g;
   for (const l of listings) {
     if (game.soldTo[l.id]) continue;
     if (l.isNew) continue; // the developer's price list doesn't move week to week
-    l.guide = [Math.round(l.guide[0] * 1.015), Math.round(l.guide[1] * 1.015)];
-    l.trueValue = Math.round(l.trueValue * 1.015);
-    l.reserve = Math.round(l.reserve * 1.015);
-    if (l.asking) l.asking = round1k(l.asking * 1.015);
-    if (l.vendorMin) l.vendorMin = Math.round(l.vendorMin * 1.015);
+    l.guide = [Math.round(l.guide[0] * g), Math.round(l.guide[1] * g)];
+    l.trueValue = Math.round(l.trueValue * g);
+    l.reserve = Math.round(l.reserve * g);
+    if (l.asking) l.asking = round1k(l.asking * g);
+    if (l.vendorMin) l.vendorMin = Math.round(l.vendorMin * g);
     houses[l.id].sign.userData.updateSign(signTextFor(l), null);
   }
+  if (!game.rateRiseDone && !game.ownedId && game.week >= 5) game.rateRisePending = true;
+}
+
+// ---------- the RBA does not care about your Saturday plans ----------
+
+function noOverlaysOpen() {
+  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'negotiate-panel']
+    .every((id) => !$(id) || $(id).classList.contains('hidden'));
+}
+
+function fireRateRise() {
+  game.rateRiseDone = true;
+  game.rateRisePending = false;
+  const oldRate = game.rate, oldPre = game.preApproval;
+  game.rate += 0.005;
+  game.preApproval = round1k(game.preApproval * 0.95);
+  game.marketGrowth = 1.008; // hot air comes out of the market a little
+  const oldRepay = monthlyRepayment(oldPre, oldRate);
+  const newRepay = monthlyRepayment(game.preApproval, game.rate);
+  updateHUD();
+  dialog('📈 The RBA moves — cash rate up 0.50%', `Tuesday, 2:30pm. The Reserve Bank lifts the cash rate half a percent and every lender passes it on by Friday.<br><br>
+    <b>Your rate:</b> ${(oldRate * 100).toFixed(2)}% → <b>${(game.rate * 100).toFixed(2)}%</b><br>
+    <b>Your pre-approval:</b> ${fmt(oldPre)} → <b>${fmt(game.preApproval)}</b> — the lender reassessed your serviceability at the higher rate. Nobody rings to tell you; you find out when you ask.<br>
+    <b>Repayments on a maxed loan:</b> ${fmt(oldRepay)}/mo → <b>${fmt(newRepay)}/mo</b><br><br>
+    Every variable-rate borrower in the country just got the same news. Auction crowds thin out a touch — but the house you could afford last month, you might not afford now.`, [
+    { label: 'Recalculate and carry on', onClick: unfreeze },
+  ]);
 }
 
 document.querySelectorAll('.bidbtns .btn').forEach((btn) => {
@@ -869,7 +914,9 @@ function settle(l, price, valCap = null, extras = {}) {
   show(v);
 
   const dutyLabel = game.fhb && s.duty === 0 ? 'Stamp duty (FHB exempt 🎉)' : 'Stamp duty';
-  const lmiLabel = s.fhbg ? 'LMI (waived — First Home Guarantee 🎉)' : `Lenders mortgage insurance${s.lmi === 0 ? ' (LVR ≤ 80%)' : ''}`;
+  const lmiLabel = s.fhbg ? 'LMI (waived — First Home Guarantee 🎉)'
+    : (game.guarantor && s.lmi === 0 && s.lvr > 0.8) ? 'LMI (waived — family guarantee 🙏)'
+    : `Lenders mortgage insurance${s.lmi === 0 ? ' (LVR ≤ 80%)' : ''}`;
   const rows = [
     ['Purchase price', fmt(s.price)],
     [`Loan drawn (LVR ${(s.lvr * 100).toFixed(0)}%${valCap ? ', against the bank\'s valuation' : ''})`, '−' + fmt(s.loan)],
@@ -891,6 +938,9 @@ function settle(l, price, valCap = null, extras = {}) {
     <tr class="total"><td>Cash remaining</td><td>${fmt(game.savings)}</td></tr>
   </table>`;
   $('res-continue').textContent = 'Move in 🔑';
+  game.purchase = { listing: l, price, loan: s.loan, fhbg: s.fhbg };
+  $('res-epilogue').textContent = 'Fast-forward 5 years ⏩';
+  show($('res-epilogue'));
   show($('result-panel'));
   updateHUD();
 }
@@ -901,18 +951,135 @@ function gameOver() {
   $('res-title').textContent = '📉 Priced out';
   $('res-sub').textContent = `Every home on Banksia Street sold to someone else. ${game.week} weeks of Saturdays, and nothing to show but sausage sizzle receipts.`;
   hide($('res-verdict'));
-  $('res-costs').innerHTML = `<p class="sub" style="margin-top:10px">The market rose ${((Math.pow(1.015, game.week - 1) - 1) * 100).toFixed(1)}% while you watched. Classic.</p>`;
+  $('res-costs').innerHTML = `<p class="sub" style="margin-top:10px">The market rose ${((game.marketIndex - 1) * 100).toFixed(1)}% while you watched. Classic.</p>`;
   $('res-continue').textContent = 'Try again next season';
+  $('res-epilogue').textContent = 'See where 5 years of renting leads ⏩';
+  show($('res-epilogue'));
   show($('result-panel'));
 }
 
 $('res-continue').addEventListener('click', () => {
   if (game.phase === 'over') { location.reload(); return; }
   hide($('result-panel'));
-  $('hint').innerHTML = '🏡 It\'s yours. Walk inside and admire the castle — you\'ve earned every square metre.';
+  $('hint').innerHTML = '🏡 It\'s yours. Walk inside and admire the castle — press <b>T</b> any time to fast-forward five years.';
   player.enabled = true;
   player.requestLock();
 });
+$('res-epilogue').addEventListener('click', runEpilogue);
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyT' && game.phase === 'settled' && noOverlaysOpen()) runEpilogue();
+});
+
+// ---------- five years later ----------
+
+// Rate path over 60 months: two more hikes, then relief. Fixed loans are immune
+// for 24 months, then hit the cliff onto a higher revert rate.
+function epilogueRate(month) {
+  let variable = game.rate;
+  if (month >= 6) variable += 0.0025;
+  if (month >= 12) variable += 0.0025;
+  if (month >= 30) variable -= 0.0025;
+  if (month >= 42) variable -= 0.0025;
+  if (game.loanType.id === 'fixed') {
+    return month < 24 ? game.rate + game.loanType.rateDelta : variable + 0.0015; // revert-rate spread
+  }
+  return variable + game.loanType.rateDelta;
+}
+
+function runEpilogue() {
+  freeze();
+  hide($('result-panel'));
+  if (game.purchase) ownedEpilogue();
+  else pricedOutEpilogue();
+  game.phase = 'over'; // res-continue now restarts
+}
+
+function ownedEpilogue() {
+  const { listing: l, price, loan } = game.purchase;
+  // amortise 60 months, repayment recalculated whenever the rate steps
+  let bal = loan, interestPaid = 0, lastRate = -1, repay = 0, cliffJump = 0;
+  for (let m = 0; m < 60; m++) {
+    const r = epilogueRate(m);
+    if (r !== lastRate) {
+      const prevRepay = repay;
+      repay = bal * (r / 12) / (1 - Math.pow(1 + r / 12, -(360 - m))); // recompute over remaining term
+      if (game.loanType.id === 'fixed' && m === 24) cliffJump = repay - prevRepay;
+      lastRate = r;
+    }
+    const interest = bal * lastRate / 12;
+    interestPaid += interest;
+    bal -= (repay - interest);
+  }
+
+  // value: houses outgrow apartments; the renovator's delight pays for the brave
+  const annualGrowth = l.ownersCorp ? 0.025 : 0.04;
+  const basis = l.trueValue + (l.id === 'reno' ? l.repairCost * 1.8 : l.repairCost);
+  const value = Math.round(basis * Math.pow(1 + annualGrowth, 5));
+
+  // your cash: in the offset it fights the loan rate; otherwise a term deposit
+  const offset = game.loanType.id !== 'fixed';
+  const cashRate = offset ? (game.rate + 0.005) : 0.04;
+  let cash = Math.round(game.savings * Math.pow(1 + cashRate, 5));
+  const ocDrag = l.ownersCorp ? l.ownersCorp.feesQtr * 20 + 3000 : 0; // 5yrs of fees + a small second levy
+  cash = Math.max(0, cash - ocDrag);
+
+  const equity = Math.round(value - bal);
+  const renterCash = Math.round(180000 * Math.pow(1.045, 5));
+  const netWorth = equity + cash;
+  const delta = netWorth - renterCash;
+
+  $('res-title').textContent = '⏩ Five years later';
+  $('res-sub').innerHTML = `Rates went up twice more, then came off the boil. ` +
+    (game.loanType.id === 'fixed' ? `Your fixed rate expired in year 2 — repayments jumped <b>${fmt(cliffJump)}/month</b> overnight. The fixed-rate cliff is real. ` : `Your offset savings quietly saved you interest at the loan rate the whole time. `) +
+    (game.guarantor ? `Year 2: your equity passed 20% and <b>your parents' guarantee was released</b> — Christmas lunch got easier. ` : '') +
+    (l.ownersCorp ? `The owners corp levied once more (small, this time) and the fees never stopped. ` : '') +
+    (l.id === 'reno' ? `The renovation was dust, tears and $${Math.round(l.repairCost / 1000)}k — and it built more value than it cost. ` : '');
+  const v = $('res-verdict');
+  v.className = `verdict ${delta >= 40000 ? 'good' : delta >= -20000 ? 'ok' : 'bad'}`;
+  v.textContent = delta >= 40000
+    ? `🏆 You're ${fmt(delta)} ahead of where renting and investing would have left you. The castle delivered.`
+    : delta >= -20000
+      ? `👍 Roughly line-ball with renting so far (${delta >= 0 ? '+' : '−'}${fmt(Math.abs(delta))}) — but your rate is falling, your rent would've kept rising, and the equity curve bends your way from here.`
+      : `😬 Renting and investing would've left you ${fmt(-delta)} better off so far. Early years are the hardest — the interest-heavy end of the loan plus what you overpaid on day one.`;
+  show(v);
+  $('res-costs').innerHTML = `<table class="costs">
+    <tr><td>${l.address} today (${(annualGrowth * 100).toFixed(1)}%/yr)</td><td>${fmt(value)}</td></tr>
+    <tr><td>Loan remaining (of ${fmt(loan)})</td><td>−${fmt(Math.round(bal))}</td></tr>
+    <tr><td>Interest paid over 5 years</td><td>${fmt(Math.round(interestPaid))}</td></tr>
+    <tr><td>Your equity</td><td>${fmt(equity)}</td></tr>
+    <tr><td>Cash & ${offset ? 'offset' : 'savings'}${ocDrag ? ' (after OC fees + levy)' : ''}</td><td>${fmt(cash)}</td></tr>
+    <tr><td>If you'd rented & invested instead</td><td>${fmt(renterCash)}</td></tr>
+    <tr class="total"><td>Net position vs renting</td><td>${delta >= 0 ? '+' : '−'}${fmt(Math.abs(delta))}</td></tr>
+  </table>`;
+  $('res-continue').textContent = 'Play again';
+  hide($('res-epilogue'));
+  show($('result-panel'));
+}
+
+function pricedOutEpilogue() {
+  const dearest = listings.reduce((a, b) => (a.trueValue > b.trueValue ? a : b));
+  const cheapest = listings.reduce((a, b) => (a.trueValue < b.trueValue ? a : b));
+  const grow = (n) => Math.round(n * Math.pow(1.035, 5));
+  const savingsNow = Math.round(game.savings * Math.pow(1.045, 5));
+  const entry = grow(cheapest.trueValue);
+  const cashNeeded = Math.round(entry * 0.05 + 25000); // 5% + duty-ish
+  $('res-title').textContent = '⏩ Five years later — still renting';
+  $('res-sub').textContent = 'Rent went up every February. The landlord sold once, which meant moving. You kept saving. So did the market.';
+  const v = $('res-verdict');
+  v.className = 'verdict bad';
+  v.textContent = `📉 The market compounds. Wages don't. The homes you inspected are worth ${((Math.pow(1.035, 5) - 1) * 100).toFixed(0)}% more; your savings grew ${((Math.pow(1.045, 5) - 1) * 100).toFixed(0)}% — minus five years of rent.`;
+  show(v);
+  $('res-costs').innerHTML = `<table class="costs">
+    <tr><td>${cheapest.address} (the one you passed on) today</td><td>${fmt(grow(cheapest.trueValue))}</td></tr>
+    <tr><td>${dearest.address} today</td><td>${fmt(grow(dearest.trueValue))}</td></tr>
+    <tr><td>Five years of rent, gone</td><td>${fmt(143000)}</td></tr>
+    <tr><td>Your savings now</td><td>${fmt(savingsNow)}</td></tr>
+    <tr class="total"><td>Still enough to get in? (need ~${fmt(cashNeeded)})</td><td>${savingsNow >= cashNeeded ? 'Just — go again' : 'Not in this suburb'}</td></tr>
+  </table>`;
+  $('res-continue').textContent = 'Play again';
+  hide($('res-epilogue'));
+  show($('result-panel'));
+}
 
 // ---------- interaction ----------
 
@@ -957,6 +1124,8 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   player.update(dt);
   game.auction?.update(dt);
+
+  if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
 
   const prompt = $('prompt');
   if (game.phase === 'explore' && $('listing-panel').classList.contains('hidden')) {
@@ -1018,7 +1187,14 @@ window.__game = {
     for (let t = 0; t < seconds && game.auction; t += 0.1) game.auction.update(0.1);
   },
   collectKeys: () => $('res-continue').click(),
-  frame: (dt = 0.016) => { player.update(dt); game.auction?.update(dt); renderer.render(scene, camera); },
+  forceRateRise: () => fireRateRise(),
+  epilogue: () => runEpilogue(),
+  frame: (dt = 0.016) => {
+    player.update(dt);
+    game.auction?.update(dt);
+    if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
+    renderer.render(scene, camera);
+  },
   _scene: scene, _houses: houses, _player: player, _renderer: renderer, _camera: camera,
   _raw: game, _solids: solids, _THREE: THREE,
 };

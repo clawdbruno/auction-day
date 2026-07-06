@@ -43,6 +43,21 @@ understand what actually happens, in order, with real-ish numbers.
    misses the booking — and finally the keys, a full cost breakdown, and a verdict
    against true market value.
 
+Also in the simulation:
+
+- **The RBA moves mid-game.** Linger past week 5 unbought and the cash rate rises
+  0.50%: your rate steps up, your pre-approval is silently reassessed ~5% lower,
+  repayments jump, and market growth cools. The house you could afford last month,
+  you might not afford now.
+- **Bank of mum & dad.** A family guarantee waives LMI at any LVR — with the
+  letter spelling out whose home carries the risk until you reach 20% equity.
+  Correctly can't be stacked with the First Home Guarantee.
+- **Five years later.** After you settle (or get priced out), fast-forward:
+  a full 60-month amortisation against a rate path, the fixed-rate cliff if you
+  fixed, offset interest savings if you didn't, house-vs-apartment growth, OC fee
+  drag, guarantee release at 20% equity, renovation ROI on the fixer-upper — and
+  an honest net-position comparison against renting-and-investing the same money.
+
 ## Run
 
 ```sh
