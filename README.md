@@ -99,6 +99,19 @@ And the street is a scene, not a set:
   the title screen mid-run. **M** opens your notes: every listing's status, price,
   and the research you've paid for, in one panel.
 
+Built to be approachable for people who've never bought property:
+
+- **Plain-English glossary** — press **G** (or tap 📖 top-right) any time, even
+  mid-wizard, for a searchable dictionary of all 38 terms the game uses: LVR,
+  Section 32, unconditional, LMI, offset, sinking fund, gazumping-adjacent gotchas
+  and the rest — each explained the way a patient friend would.
+- **Gentle onboarding** — first-timers get a "Your first Saturday" welcome and a
+  live checklist (inspect a home, do your homework, chat with the agent) that
+  ticks off as you go, then retires itself. Returning players never see it again.
+- **Touch & mobile** — on phones and tablets: a left thumb-stick to walk,
+  drag-anywhere to look, a big TAP button (and tappable prompts) to interact.
+  Desktop keeps mouse-look and pointer-lock. Layout reflows for narrow screens.
+
 ## Run
 
 ```sh
@@ -112,7 +125,9 @@ Or via the shared launch config: server name `auction-day`.
 
 - **WASD** move, **mouse** look (click to capture cursor, ESC to release)
 - Walk through the front gate and open front door to inspect interiors
-- **E** or click a house — open the listing
+- **E** — chat with the agent if you're near them, otherwise open the listing
+- **G** glossary · **M** your notes · **T** (once settled) five-years-later
+- On touch devices: thumb-stick to walk, drag to look, TAP button to interact
 - Everything else happens through the UI panels
 
 ## Debug hooks (headless testing)

@@ -16,6 +16,8 @@ export class Player {
     this.speed = 6.5;
     this.solids = []; // {minX,maxX,minZ,maxZ}
     this.locked = false;
+    this.touch = false;              // on touch devices we skip pointer-lock entirely
+    this.touchMove = { x: 0, y: 0 }; // joystick vector: x = strafe, y = forward (−1..1)
 
     document.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -35,10 +37,19 @@ export class Player {
   }
 
   requestLock() {
+    if (this.touch) return;
     if (!this.locked) this.dom.requestPointerLock?.();
   }
   releaseLock() {
+    if (this.touch) return;
     if (this.locked) document.exitPointerLock?.();
+  }
+
+  // touch look, applied from a drag on the render surface
+  lookBy(dx, dy) {
+    this.yaw -= dx * 0.006;
+    this.pitch -= dy * 0.006;
+    this.pitch = Math.max(-1.3, Math.min(1.3, this.pitch));
   }
 
   teleport(x, z, yaw) {
@@ -80,6 +91,9 @@ export class Player {
       if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) move.sub(fwd);
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) move.add(right);
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) move.sub(right);
+      if (this.touchMove.x || this.touchMove.y) {
+        move.addScaledVector(fwd, this.touchMove.y).addScaledVector(right, this.touchMove.x);
+      }
       if (move.lengthSq() > 0) {
         move.normalize().multiplyScalar(this.speed * dt);
         const next = this.pos.clone().add(move);

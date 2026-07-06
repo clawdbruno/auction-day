@@ -4,6 +4,7 @@ import { buildWorld, buildPerson, buildCar, HOUSE_DIMS } from './world.js';
 import { Player } from './player.js';
 import { Auction } from './auction.js';
 import { Ambience } from './ambience.js';
+import { GLOSSARY } from './glossary.js';
 import {
   fmt, round1k, settlement, maxPurchase, monthlyRepayment, borrowingPower,
   LENDERS, EXPENSES, CARD_LIMITS, SOLICITORS, LOAN_TYPES,
@@ -340,6 +341,7 @@ function startGame() {
   for (let i = 0; i < LENDERS[game.lender].approvalWeeks; i++) advanceWeek();
   hide($('start-screen'));
   show($('hud'));
+  show($('notes-btn'));
   show($('crosshair'));
   show($('hint'));
   updateHUD();
@@ -349,6 +351,7 @@ function startGame() {
   saveGame();
   player.enabled = true;
   player.requestLock();
+  maybeStartOnboarding();
 }
 $('start-btn').addEventListener('click', startGame);
 
@@ -360,6 +363,7 @@ function openPanel(id) {
   const l = byId[id];
   if (!l || game.soldTo[id] || game.phase !== 'explore') return;
   panelListing = l;
+  objMark('inspect');
   freeze();
   $('lp-address').textContent = l.address;
   $('lp-style').textContent = l.style + (l.ownersCorp ? ` · OC fees ${fmt(l.ownersCorp.feesQtr)}/qtr` : '');
@@ -459,6 +463,7 @@ $('lp-comps-btn').addEventListener('click', () => {
   if (!panelListing || game.comps[panelListing.id]) return;
   game.savings -= COMPS_COST;
   game.comps[panelListing.id] = generateComps(panelListing);
+  objMark('research');
   updateHUD();
   saveGame();
   blip(880, 0.1, 'sine');
@@ -470,6 +475,7 @@ $('lp-report-btn').addEventListener('click', () => {
   if (!panelListing || game.reports.has(panelListing.id)) return;
   game.savings -= REPORT_COST;
   game.reports.add(panelListing.id);
+  objMark('research');
   updateHUD();
   saveGame();
   blip(880, 0.1, 'sine');
@@ -480,6 +486,7 @@ $('lp-review-btn').addEventListener('click', () => {
   game.savings -= game.solicitor.review;
   game.reviews.add(panelListing.id);
   if (Math.random() < game.solicitor.missChance) game.reviewMissed.add(panelListing.id);
+  objMark('research');
   updateHUD();
   saveGame();
   blip(880, 0.1, 'sine');
@@ -489,6 +496,7 @@ $('lp-oc-btn').addEventListener('click', () => {
   if (!panelListing?.ownersCorp || game.ocRead.has(panelListing.id)) return;
   game.savings -= OC_RECORDS_COST;
   game.ocRead.add(panelListing.id);
+  objMark('research');
   updateHUD();
   saveGame();
   blip(880, 0.1, 'sine');
@@ -965,6 +973,7 @@ function askAgent(l, q) {
 function openChat(l, viaPhone = false) {
   if (game.soldTo[l.id] || (game.phase !== 'explore')) return;
   chatListing = l;
+  objMark('talk');
   freeze();
   $('chat-sub').innerHTML = `${l.address} · ${l.saleType === 'auction' ? 'auction campaign' : 'private sale'}` +
     (viaPhone ? ' · <i>you dial the number on the board</i>' : ' · <i>he clocks you coming up the path and straightens his lanyard</i>');
@@ -1293,7 +1302,7 @@ function advanceWeek() {
 // ---------- the RBA does not care about your Saturday plans ----------
 
 function noOverlaysOpen() {
-  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'summary-panel', 'chat-panel']
+  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'summary-panel', 'chat-panel', 'glossary-panel']
     .every((id) => !$(id) || $(id).classList.contains('hidden'));
 }
 
@@ -1646,6 +1655,7 @@ function resumeGame(d) {
   }
   hide($('start-screen'));
   show($('hud'));
+  show($('notes-btn'));
   show($('crosshair'));
   show($('hint'));
   if (game.phase === 'settled') $('hint').innerHTML = '🏡 It\'s yours. Press <b>T</b> any time to fast-forward five years.';
@@ -1707,9 +1717,188 @@ function toggleSummary() {
 }
 
 $('summary-close').addEventListener('click', toggleSummary);
+$('notes-btn').addEventListener('click', toggleSummary);
+
+function isTyping() {
+  const el = document.activeElement;
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyM') toggleSummary();
+  if (e.code === 'KeyM' && !isTyping()) toggleSummary();
 });
+
+// ---------- glossary (G) — openable any time, even mid-wizard ----------
+
+function glossOpen() { return !$('glossary-panel').classList.contains('hidden'); }
+
+function renderGloss(q = '') {
+  const term = q.trim().toLowerCase();
+  const items = GLOSSARY.filter((g) =>
+    !term || g.t.toLowerCase().includes(term) || (g.k && g.k.includes(term)) || g.d.toLowerCase().includes(term));
+  $('gloss-list').innerHTML = items.map((g) =>
+    `<div class="gloss-item"><div class="gt">${g.t}</div><div class="gd">${g.d}</div></div>`).join('');
+  $('gloss-none').classList.toggle('hidden', items.length > 0);
+}
+
+function openGlossary() {
+  if (glossOpen()) return;
+  if (game.phase === 'explore' || game.phase === 'settled') freeze();
+  $('gloss-search').value = '';
+  renderGloss();
+  show($('glossary-panel'));
+}
+function closeGlossary() {
+  $('gloss-search').blur(); // don't let a hidden input swallow later keyboard shortcuts
+  hide($('glossary-panel'));
+  unfreeze();
+}
+$('gloss-btn').addEventListener('click', () => (glossOpen() ? closeGlossary() : openGlossary()));
+$('gloss-close').addEventListener('click', closeGlossary);
+$('gloss-search').addEventListener('input', (e) => renderGloss(e.target.value));
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyG' && !isTyping()) { glossOpen() ? closeGlossary() : openGlossary(); }
+  else if (e.code === 'Escape' && glossOpen()) closeGlossary();
+});
+
+// ---------- first-session objectives (gentle onboarding) ----------
+
+const OBJ_TASKS = [
+  { id: 'inspect', label: 'Walk into a home & open its listing' },
+  { id: 'research', label: 'Do your homework — comps or a report' },
+  { id: 'talk', label: 'Chat with Ray, the agent' },
+];
+const onb = { inspect: false, research: false, talk: false, active: false, finished: false };
+const onboardedBefore = () => { try { return localStorage.getItem('auction-day-onboarded') === '1'; } catch { return false; } };
+const markOnboarded = () => { try { localStorage.setItem('auction-day-onboarded', '1'); } catch { /* ok */ } };
+
+function renderObjectives() {
+  if (!onb.active) { hide($('objectives')); return; }
+  const done = OBJ_TASKS.filter((t) => onb[t.id]).length;
+  $('obj-list').innerHTML = OBJ_TASKS.map((t) =>
+    `<div class="obj ${onb[t.id] ? 'done' : ''}"><span class="box">${onb[t.id] ? '✔' : '☐'}</span><span>${t.label}</span></div>`).join('')
+    + (done === OBJ_TASKS.length ? `<div class="obj" style="color:var(--gold)"><span class="box">→</span><span>You've got the rhythm. Buy one when it feels right.</span></div>` : '');
+  show($('objectives'));
+  if (done === OBJ_TASKS.length && !onb.finished) {
+    onb.finished = true;
+    markOnboarded();
+    setTimeout(() => { onb.active = false; hide($('objectives')); }, 9000);
+  }
+}
+function objMark(id) {
+  if (!onb.active || onb[id]) return;
+  onb[id] = true;
+  renderObjectives();
+}
+$('obj-dismiss').addEventListener('click', () => { onb.active = false; hide($('objectives')); markOnboarded(); });
+
+function maybeStartOnboarding() {
+  if (onboardedBefore()) return;
+  onb.active = true;
+  renderObjectives();
+  dialog('Welcome to your first Saturday', `You're pre-approved and standing on the street. No pressure today — just get the feel of the process:<br><br>
+    · Walk up to a home and open its <b>listing</b><br>
+    · Do a little <b>homework</b> — comparable sales, or a building &amp; pest report<br>
+    · <b>Chat with Ray</b> the agent, and learn to read between the lines<br><br>
+    Tripped up by a word like “LVR” or “unconditional”? Tap <b>📖 Glossary</b> (top-right, or press <b>G</b>) any time. No question is too basic — that's the whole point of this.`,
+    [{ label: 'Let\'s have a look around', onClick: unfreeze }]);
+}
+
+// ---------- touch / mobile controls ----------
+
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
+let touchStick = null, touchInteract = null;
+
+function doInteract() {
+  if (game.phase !== 'explore' || !noOverlaysOpen()) return;
+  const agent = nearestAgent();
+  if (agent) return openChat(agent, false);
+  const l = nearestListing();
+  if (l) openPanel(l.id);
+}
+
+function setupTouch() {
+  document.body.classList.add('touch');
+  player.touch = true;
+  $('hint').innerHTML = 'Left stick to walk · drag the right side to look · <b>TAP</b> button to interact · 📖 top-right for the glossary';
+
+  touchStick = document.createElement('div');
+  touchStick.id = 'touch-move';
+  touchStick.innerHTML = '<div class="nub"></div>';
+  touchInteract = document.createElement('button');
+  touchInteract.id = 'touch-interact';
+  touchInteract.textContent = 'TAP';
+  touchStick.style.display = 'none';
+  touchInteract.style.display = 'none';
+  document.body.append(touchStick, touchInteract);
+  const nub = touchStick.querySelector('.nub');
+  const R = 46;
+
+  let moveId = null, mcx = 0, mcy = 0;
+  touchStick.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    moveId = t.identifier;
+    const r = touchStick.getBoundingClientRect();
+    mcx = r.left + r.width / 2; mcy = r.top + r.height / 2;
+  }, { passive: false });
+  const moveTouch = (e) => {
+    if (moveId === null) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier !== moveId) continue;
+      e.preventDefault();
+      let dx = t.clientX - mcx, dy = t.clientY - mcy;
+      const len = Math.hypot(dx, dy);
+      if (len > R) { dx = dx / len * R; dy = dy / len * R; }
+      nub.style.transform = `translate(${dx}px, ${dy}px)`;
+      player.touchMove.x = dx / R;
+      player.touchMove.y = -dy / R; // screen-down is backward
+    }
+  };
+  const endMove = (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier !== moveId) continue;
+      moveId = null;
+      nub.style.transform = '';
+      player.touchMove.x = 0; player.touchMove.y = 0;
+    }
+  };
+  touchStick.addEventListener('touchmove', moveTouch, { passive: false });
+  touchStick.addEventListener('touchend', endMove);
+  touchStick.addEventListener('touchcancel', endMove);
+
+  // look: drag anywhere on the render surface (the stick/button sit above it)
+  let lookId = null, lx = 0, ly = 0;
+  const canvas = renderer.domElement;
+  canvas.addEventListener('touchstart', (e) => {
+    if (lookId !== null) return;
+    const t = e.changedTouches[0];
+    lookId = t.identifier; lx = t.clientX; ly = t.clientY;
+  }, { passive: true });
+  canvas.addEventListener('touchmove', (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier !== lookId) continue;
+      if (player.enabled) player.lookBy(t.clientX - lx, t.clientY - ly);
+      lx = t.clientX; ly = t.clientY;
+    }
+  }, { passive: true });
+  const endLook = (e) => {
+    for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+  };
+  canvas.addEventListener('touchend', endLook);
+  canvas.addEventListener('touchcancel', endLook);
+
+  touchInteract.addEventListener('click', doInteract);
+}
+
+function updateTouchUI() {
+  if (!player.touch || !touchStick) return;
+  const showCtl = player.enabled && (game.phase === 'explore' || game.phase === 'settled') && noOverlaysOpen();
+  touchStick.style.display = showCtl ? 'block' : 'none';
+  touchInteract.style.display = showCtl ? 'block' : 'none';
+}
+
+if (IS_TOUCH) setupTouch();
 
 // ---------- interaction ----------
 
@@ -1734,15 +1923,13 @@ function nearestAgent() {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyE' || game.phase !== 'explore') return;
-  if (!noOverlaysOpen()) return;
-  const agent = nearestAgent();
-  if (agent) return openChat(agent, false);
-  const l = nearestListing();
-  if (l) openPanel(l.id);
+  if (e.code === 'KeyE' && !isTyping()) doInteract();
 });
 
+$('prompt').addEventListener('click', doInteract); // tappable — helps on touch
+
 renderer.domElement.addEventListener('click', () => {
+  if (player.touch) return; // touch uses the joystick + interact button
   if (game.phase === 'explore' || game.phase === 'settled') {
     if (!noOverlaysOpen()) return;
     if (!player.locked) { player.requestLock(); return; }
@@ -1777,16 +1964,18 @@ function animate() {
   driftClouds(dt);
 
   if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
+  updateTouchUI();
 
+  const verb = IS_TOUCH ? 'TAP' : 'E';
   const prompt = $('prompt');
   if (game.phase === 'explore' && noOverlaysOpen()) {
     const agent = nearestAgent();
     const l = agent ?? nearestListing();
     if (agent) {
-      prompt.innerHTML = `<b>E</b> · chat with Ray, the agent — ${agent.address}`;
+      prompt.innerHTML = `<b>${verb}</b> · chat with Ray, the agent — ${agent.address}`;
       show(prompt);
     } else if (l) {
-      prompt.innerHTML = `<b>E</b> · listing — ${l.address} (${l.saleType === 'auction' ? 'auction' : 'private sale'})`;
+      prompt.innerHTML = `<b>${verb}</b> · listing — ${l.address} (${l.saleType === 'auction' ? 'auction' : 'private sale'})`;
       show(prompt);
     } else hide(prompt);
   } else hide(prompt);
@@ -1861,6 +2050,11 @@ window.__game = {
   forceRateRise: () => fireRateRise(),
   epilogue: () => runEpilogue(),
   toggleSummary: () => toggleSummary(),
+  glossary: (q) => { openGlossary(); if (q != null) { $('gloss-search').value = q; renderGloss(q); } return $('gloss-list').querySelectorAll('.gloss-item').length; },
+  closeGlossary: () => closeGlossary(),
+  objectives: () => ({ ...onb }),
+  isTouch: () => IS_TOUCH,
+  forceTouch: () => { if (!touchStick) setupTouch(); },
   save: () => saveGame(),
   clearSave: () => clearSave(),
   openHomes: () => Object.fromEntries(Object.entries(openHomes).map(([id, oh]) => [id, oh.buyers.length])),
@@ -1870,6 +2064,7 @@ window.__game = {
     updateOpenHomes(dt);
     updateArms(dt);
     driftClouds(dt);
+    updateTouchUI();
     if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
     renderer.render(scene, camera);
   },
