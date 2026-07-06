@@ -9,7 +9,7 @@ const RIVAL_NAMES = [
 const round1k = (n) => Math.round(n / 1000) * 1000;
 
 export class Auction {
-  constructor(listing, { playerMax, heat, onEvent }) {
+  constructor(listing, { playerMax, heat, onEvent, interest }) {
     this.listing = listing;
     this.playerMax = playerMax;
     this.onEvent = onEvent;
@@ -25,11 +25,12 @@ export class Auction {
     this.callsAnnounced = 0;
     this.done = false;
 
-    // rival bidders — hidden limits clustered around true value, scaled by market heat
+    // rival bidders — hidden limits clustered around true value, scaled by market heat.
+    // The count comes from the listing's interest level: what the agent told you was real.
     const heatFactor = { cooling: 0.94, balanced: 1.0, hot: 1.07 }[heat];
-    const baseCount = { cooling: 1, balanced: 2, hot: 3 }[heat];
-    const extra = listing.id === 'mcmansion' || listing.id === 'townhouse' ? 1 : 0;
-    const count = Math.min(4, baseCount + extra + (Math.random() < 0.5 ? 1 : 0));
+    const count = interest !== undefined
+      ? Math.max(1, Math.min(4, interest + (Math.random() < 0.35 ? 1 : 0)))
+      : Math.min(4, { cooling: 1, balanced: 2, hot: 3 }[heat] + (Math.random() < 0.5 ? 1 : 0));
     const names = [...RIVAL_NAMES].sort(() => Math.random() - 0.5);
     this.rivals = Array.from({ length: count }, (_, i) => ({
       name: names[i],

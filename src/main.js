@@ -43,6 +43,8 @@ const game = {
   rateRiseDone: false,
   rateRisePending: false,
   purchase: null, // filled at settlement, feeds the epilogue
+  agentNotes: {},  // listingId -> { questionId: short note } — what you sussed out
+  asked: {},       // listingId -> Set of question ids this conversation-lifetime
 };
 
 const listings = LISTINGS.map((l) => ({ ...l }));
@@ -280,6 +282,13 @@ $('preapprove-btn').addEventListener('click', applyForPreApproval);
 function startGame() {
   if (!game.preApproval) return;
   game.heat = document.querySelector('#difficulty-row .choice.sel')?.dataset.diff ?? 'balanced';
+  // buyer interest per listing — the thing worth sussing out of the agent
+  const baseInterest = { cooling: 0, balanced: 1, hot: 2 }[game.heat];
+  for (const l of listings) {
+    l.interest = Math.min(3, baseInterest
+      + (l.id === 'mcmansion' || l.id === 'townhouse' ? 1 : 0)
+      + (Math.random() < 0.4 ? 1 : 0));
+  }
   game.phase = 'explore';
   // the weeks you spent getting approved — the market moved without you
   for (let i = 0; i < LENDERS[game.lender].approvalWeeks; i++) advanceWeek();
@@ -414,17 +423,26 @@ $('lp-buy-btn').addEventListener('click', () => {
 
 let offerListing = null;
 
+// what "asking" means for an auction campaign taken off-market: the vendor's number
+const effAsking = (l) => l.asking ?? round1k(l.reserve * 1.03);
+const effVendorMin = (l) => l.vendorMin ?? Math.round(l.reserve * 0.985);
+
 function openOfferModal(l, roundNote = '') {
   offerListing = l;
   freeze();
-  $('offer-title').textContent = `Offer on ${l.address}`;
-  $('offer-sub').innerHTML = `Asking ${fmt(l.asking)}. ${roundNote || 'The agent will "take it to the vendor tonight". Everything is negotiable — including how long they pretend to think about it.'}`
+  const asking = effAsking(l);
+  const preAuction = l.saleType === 'auction';
+  $('offer-title').textContent = preAuction ? `Pre-auction offer — ${l.address}` : `Offer on ${l.address}`;
+  $('offer-sub').innerHTML = (preAuction
+    ? `The agent reckons the vendor would sign tonight for the right number — guide ${signTextFor(l)}, but the reserve is the reserve. <b>No cooling-off this close to an advertised auction (s31).</b> `
+    : `Asking ${fmt(asking)}. `)
+    + `${roundNote || 'The agent will "take it to the vendor tonight". Everything is negotiable — including how long they pretend to think about it.'}`
     + (l.isNew ? `<br>⚠ FHOG only applies at or under ${fmt(FHOG_PRICE_CAP)} — mind the cap.` : '');
   const amounts = [
-    { label: 'Cheeky', value: round1k(l.asking * 0.94) },
-    { label: 'Fair go', value: round1k(l.asking * 0.97) },
-    { label: 'Asking', value: l.asking },
-    { label: 'Knockout', value: round1k(l.asking * 1.02) },
+    { label: 'Cheeky', value: round1k(asking * 0.94) },
+    { label: 'Fair go', value: round1k(asking * 0.97) },
+    { label: 'Asking', value: asking },
+    { label: 'Knockout', value: round1k(asking * 1.02) },
   ];
   const row = $('offer-amounts');
   row.innerHTML = '';
@@ -443,7 +461,9 @@ function openOfferModal(l, roundNote = '') {
     row.appendChild(el);
   });
   if (!row.querySelector('.choice.sel')) row.querySelector('.choice')?.classList.add('sel');
-  $('offer-submit').textContent = 'Submit offer';
+  // pre-auction contracts run on auction terms — no finance clause to hide behind
+  $('offer-stf-label').style.display = preAuction ? 'none' : '';
+  $('offer-submit').textContent = preAuction ? 'Put it to them tonight' : 'Submit offer';
   show($('offer-panel'));
 }
 
@@ -451,7 +471,7 @@ $('offer-cancel').addEventListener('click', () => { hide($('offer-panel')); offe
 $('offer-submit').addEventListener('click', () => {
   const l = offerListing;
   const amount = Number($('offer-amounts').querySelector('.choice.sel')?.dataset.value ?? 0);
-  const stf = $('offer-stf').checked;
+  const stf = l.saleType === 'auction' ? false : $('offer-stf').checked; // auction terms: unconditional
   if (!l || !amount) return;
   hide($('offer-panel'));
   offerListing = null;
@@ -460,7 +480,12 @@ $('offer-submit').addEventListener('click', () => {
 
 function submitOffer(l, amount, stf, isBestAndFinal = false) {
   game.offerRound += 1;
-  if (!isBestAndFinal && game.offerRound === 1 && amount < l.asking * 0.99 && game.heat !== 'cooling' && Math.random() < 0.35) {
+  const asking = effAsking(l);
+  const vendorMin = effVendorMin(l);
+  const method = l.saleType === 'auction' ? 'post-auction' : 'private';
+  // real interest drives real competition — what the agent told you was the tell
+  const rivalChance = 0.15 * (l.interest ?? 2);
+  if (!isBestAndFinal && game.offerRound === 1 && amount < asking * 0.99 && Math.random() < rivalChance) {
     const rival = round1k(amount * 1.013 + 3000);
     const matchAmt = round1k(rival + 3000);
     dialog('The agent calls back', `“Look, awkward timing — another party has just put in <b>${fmt(rival)}</b>. The vendor's asked for best and final by 5pm. Where do you want to land?”`, [
@@ -471,14 +496,14 @@ function submitOffer(l, amount, stf, isBestAndFinal = false) {
   }
 
   const effective = amount * (stf ? 0.995 : 1);
-  if (effective >= l.vendorMin * 1.015 || amount >= l.asking) {
+  if (effective >= vendorMin * 1.015 || amount >= asking) {
     dialog('Offer accepted 🎉', `“Congratulations — the vendor has accepted <b>${fmt(amount)}</b>. I'll send the contract through tonight.”<br><br>Next step: sign the Contract of Sale and pay the deposit.`, [
-      { label: 'Review & sign the contract', onClick: () => showContract(l, amount, 'private', { stf }) },
+      { label: 'Review & sign the contract', onClick: () => showContract(l, amount, method, { stf: method === 'private' && stf }) },
     ]);
-  } else if (effective >= l.vendorMin * 0.965 && game.offerRound <= 3) {
-    const counter = round1k(Math.min(l.asking, Math.max(l.vendorMin * 1.02, (amount + l.asking) / 2)));
+  } else if (effective >= vendorMin * 0.965 && game.offerRound <= 3) {
+    const counter = round1k(Math.min(asking, Math.max(vendorMin * 1.02, (amount + asking) / 2)));
     dialog('Vendor counters', `“They appreciate the offer but they're firm — they'd sign tonight at <b>${fmt(counter)}</b>.”`, [
-      { label: `Accept ${fmt(counter)}`, disabled: counter > playerMax(l), onClick: () => showContract(l, counter, 'private', { stf }) },
+      { label: `Accept ${fmt(counter)}`, disabled: counter > playerMax(l), onClick: () => showContract(l, counter, method, { stf: method === 'private' && stf }) },
       { label: 'Improve my offer', secondary: true, onClick: () => openOfferModal(l, `They countered at ${fmt(counter)}. Round ${game.offerRound + 1} — sharpen the pencil or walk.`) },
       { label: 'Walk away', secondary: true, onClick: () => { game.offerRound = 0; toast('You walked. The house stays on the market — for now.'); unfreeze(); } },
     ]);
@@ -667,6 +692,161 @@ function settlementDay(l, price, valCap, inspectionCost) {
     { label: 'Get the keys 🔑', onClick: () => settle(l, price, valCap, { inspectionCost, penalty }) },
   ]);
 }
+
+// ---------- talking to the agent ----------
+// Every answer is spin with a signal inside. The signal is real: interest level
+// drives who turns up on auction day and whether rival offers appear.
+
+let chatListing = null;
+
+const INTEREST_SPIN = [
+  { line: 'Honestly? It\'s been… boutique. A few through the opens, nothing on paper. Between you and me, the vendor\'s getting twitchy.', note: 'agent hints interest is DEAD' },
+  { line: 'Steady. Genuine buyers, second inspections booked. Nothing frantic — the right home finds the right buyer, as we say.', note: 'agent: interest is lukewarm' },
+  { line: 'Strong. Two contracts requested this week and a building inspection\'s been done — someone\'s serious. I\'d be organised.', note: 'agent: strong interest — expect company' },
+  { line: 'Enormous. Forty groups through, four contracts out, my phone hasn\'t stopped. I\'d have your ducks in a row, and your ducks\' ducks.', note: 'agent: RED HOT — a crowd is coming' },
+];
+
+function agentAnswer(l, qid) {
+  const firstHalf = (a, b) => l.interest <= 1 ? a : b;
+  switch (qid) {
+    case 'interest':
+      return { text: INTEREST_SPIN[l.interest].line, note: INTEREST_SPIN[l.interest].note };
+    case 'price': {
+      if (l.saleType === 'auction') {
+        const stretch = l.reserve > l.guide[1] * 1.02;
+        return stretch
+          ? { text: 'Look, the guide\'s the guide. But if you\'re asking where the vendor\'s head is at… I\'d want to see the <b>top of the range, and then daylight</b>. You didn\'t hear that from me.', note: 'agent tipped: reserve is ABOVE the guide' }
+          : { text: 'The range is honest on this one — the vendor\'s a realist. On the day it\'s their call, but I don\'t see silly numbers here.', note: 'agent tipped: guide is roughly honest' };
+      }
+      const soft = l.vendorMin <= l.asking * 0.96;
+      return soft
+        ? { text: 'Between us? There\'s a <b>conversation to be had</b>. Put something sensible in writing and I\'ll walk it in tonight.', note: 'agent hinted vendor will move on price' }
+        : { text: 'They\'re firm. I\'ve put two offers to them already and they didn\'t blink. The price is the price — I\'d spend your energy elsewhere in the negotiation.', note: 'agent says vendor is FIRM on price' };
+    }
+    case 'why':
+      return { text: l.agentWhy + (l.id === 'bungalow' || l.id === 'weatherboard' || l.id === 'reno' || l.id === 'townhouse' ? ' <span class="tell">A motivated vendor is a negotiable vendor. File that away.</span>' : ''), note: 'why selling: ' + l.agentWhy.split('.')[0] };
+    case 'time': {
+      const weeks = l.listedWeeks + (game.week - 1);
+      const stale = weeks >= 8;
+      return {
+        text: `${weeks} weeks now.` + (stale
+          ? ' <span class="tell">He says it quickly, the way you\'d mention a rash.</span> Look — the vendor\'s been "recalibrating expectations", if you follow me.'
+          : ' Fresh to market. The first fortnight is when the real buyers show up — that\'s now.'),
+        note: `${weeks} weeks on market${stale ? ' — STALE, leverage' : ''}`,
+      };
+    }
+    case 'offers':
+      return {
+        text: firstHalf(
+          'There\'s interest.” <span class="tell">A beat too long before "interest".</span> “Nothing I can disclose. But if an offer landed tonight I don\'t think it\'d be a long meeting.',
+          'I have one buyer at contract-request stage and another circling. I\'m not allowed to invent urgency — but I\'m not inventing this. Move or don\'t.'
+        ),
+        note: firstHalf('agent has NO real offers — leverage', 'agent claims live competing buyers'),
+      };
+    case 'prior':
+      return {
+        text: 'Officially, the vendor\'s committed to auction.” <span class="tell">He glances up the street, then lowers his voice.</span> “Unofficially — bring me a strong number tonight and I\'ll put it to them. Worth knowing: within three business days either side of an advertised auction there\'s <b>no cooling-off</b>. Same rules as the day itself.',
+        note: 'vendor would consider a PRE-AUCTION offer',
+        unlock: true,
+      };
+    default:
+      return { text: 'No worries. You\'ve got my number — it\'s on the board, the flag, and the pen you\'re holding.', note: null };
+  }
+}
+
+function chatQuestions(l) {
+  const qs = [
+    { id: 'interest', label: 'How much interest has there been?' },
+    { id: 'price', label: l.saleType === 'auction' ? 'Where do you really see it landing?' : 'Any movement on the price?' },
+    { id: 'why', label: 'Why are they selling?' },
+    { id: 'time', label: 'How long has it been on the market?' },
+  ];
+  if (l.saleType === 'private') qs.push({ id: 'offers', label: 'Any other offers on the table?' });
+  if (l.saleType === 'auction' && l.interest <= 1 && (game.asked[l.id]?.has('interest')))
+    qs.push({ id: 'prior', label: 'Would they look at an offer before auction day?' });
+  return qs;
+}
+
+function chatBubble(text, who) {
+  const div = document.createElement('div');
+  div.className = `bubble ${who}`;
+  div.innerHTML = text;
+  const log = $('chat-log');
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderChatQuestions(l) {
+  const wrap = $('chat-questions');
+  wrap.innerHTML = '';
+  const asked = game.asked[l.id] ??= new Set();
+  for (const q of chatQuestions(l)) {
+    const btn = document.createElement('button');
+    btn.className = 'btn secondary';
+    btn.textContent = (asked.has(q.id) ? '↻ ' : '') + q.label;
+    btn.addEventListener('click', () => askAgent(l, q));
+    wrap.appendChild(btn);
+  }
+  if (l.saleType === 'auction' && game.agentNotes[l.id]?.prior) {
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = '✉️ Make a pre-auction offer';
+    btn.addEventListener('click', () => { closeChat(true); openOfferModal(l); });
+    wrap.appendChild(btn);
+  }
+  const bye = document.createElement('button');
+  bye.className = 'btn secondary';
+  bye.style.opacity = '0.75';
+  bye.textContent = '“Thanks — just looking.”';
+  bye.addEventListener('click', () => closeChat());
+  wrap.appendChild(bye);
+}
+
+function askAgent(l, q) {
+  const asked = game.asked[l.id] ??= new Set();
+  chatBubble(q.label, 'you');
+  if (asked.has(q.id)) {
+    chatBubble('As I said — ' + agentAnswer(l, q.id).text.charAt(0).toLowerCase() + agentAnswer(l, q.id).text.slice(1), 'agent');
+  } else {
+    asked.add(q.id);
+    const a = agentAnswer(l, q.id);
+    chatBubble('“' + a.text + '”', 'agent');
+    if (a.note) {
+      (game.agentNotes[l.id] ??= {})[q.id] = a.note;
+      saveGame();
+    }
+  }
+  blip(520 + Math.random() * 120, 0.06, 'sine', 0.03);
+  renderChatQuestions(l);
+}
+
+function openChat(l, viaPhone = false) {
+  if (game.soldTo[l.id] || (game.phase !== 'explore')) return;
+  chatListing = l;
+  freeze();
+  $('chat-sub').innerHTML = `${l.address} · ${l.saleType === 'auction' ? 'auction campaign' : 'private sale'}` +
+    (viaPhone ? ' · <i>you dial the number on the board</i>' : ' · <i>he clocks you coming up the path and straightens his lanyard</i>');
+  $('chat-log').innerHTML = '';
+  chatBubble(viaPhone
+    ? '“Ray Wight. …Ah, the buyer from the open! Good sign, calling. What do you want to know?”'
+    : '“G\'day! Ray. Beautiful home, isn\'t it? The light in that living room — I mean. Anyway. Ask me anything.”', 'agent');
+  renderChatQuestions(l);
+  show($('chat-panel'));
+}
+
+function closeChat(silent = false) {
+  hide($('chat-panel'));
+  chatListing = null;
+  if (!silent) unfreeze();
+}
+
+$('lp-call-btn').addEventListener('click', () => {
+  if (!panelListing) return;
+  const l = panelListing;
+  hide($('listing-panel'));
+  panelListing = null;
+  openChat(l, true);
+});
 
 // ---------- open homes: the competition, visible ----------
 
@@ -877,6 +1057,7 @@ function startAuction(id) {
   game.auction = new Auction(l, {
     playerMax: playerMax(l),
     heat: game.heat,
+    interest: l.interest,
     onEvent: (type, data) => onAuctionEvent(l, type, data),
   });
   // each rival gets a body in the crowd; their bids raise that arm
@@ -970,7 +1151,7 @@ function advanceWeek() {
 // ---------- the RBA does not care about your Saturday plans ----------
 
 function noOverlaysOpen() {
-  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'summary-panel']
+  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'summary-panel', 'chat-panel']
     .every((id) => !$(id) || $(id).classList.contains('hidden'));
 }
 
@@ -1241,11 +1422,13 @@ function saveGame() {
       reports: [...game.reports], reviews: [...game.reviews],
       reviewMissed: [...game.reviewMissed], ocRead: [...game.ocRead],
       rateRiseDone: game.rateRiseDone, marketGrowth: game.marketGrowth, marketIndex: game.marketIndex,
+      agentNotes: game.agentNotes,
       purchase: game.purchase ? { id: game.purchase.listing.id, price: game.purchase.price, loan: game.purchase.loan, fhbg: game.purchase.fhbg } : null,
       pos: { x: player.pos.x, z: player.pos.z, yaw: player.yaw },
       listings: Object.fromEntries(listings.map((l) => [l.id, {
         guide: l.guide, trueValue: l.trueValue, reserve: l.reserve,
         asking: l.asking ?? null, vendorMin: l.vendorMin ?? null,
+        interest: l.interest ?? 1,
       }])),
     }));
   } catch { /* private browsing etc — the game just won't persist */ }
@@ -1280,11 +1463,13 @@ function resumeGame(d) {
   game.reviewMissed = new Set(d.reviewMissed);
   game.ocRead = new Set(d.ocRead);
   game.purchase = d.purchase ? { listing: byId[d.purchase.id], price: d.purchase.price, loan: d.purchase.loan, fhbg: d.purchase.fhbg } : null;
+  game.agentNotes = d.agentNotes ?? {};
   for (const [id, snap] of Object.entries(d.listings)) {
     const l = byId[id];
     if (!l) continue;
     Object.assign(l, {
       guide: snap.guide, trueValue: snap.trueValue, reserve: snap.reserve,
+      interest: snap.interest ?? 1,
       ...(snap.asking != null ? { asking: snap.asking } : {}),
       ...(snap.vendorMin != null ? { vendorMin: snap.vendorMin } : {}),
     });
@@ -1339,6 +1524,7 @@ function toggleSummary() {
     if (game.reviews.has(l.id)) notes.push(game.reviewMissed.has(l.id) ? 'reviewed “✓”' : (l.specialCondition ? 'contract ⚠' : 'contract ✓'));
     if (l.ownersCorp) notes.push(game.ocRead.has(l.id) ? 'OC read ⚠levy' : 'OC unread');
     if (l.isNew) notes.push('NEW·FHOG');
+    for (const n of Object.values(game.agentNotes[l.id] ?? {})) notes.push(`🗣 ${n}`);
     return `<tr${sold && sold !== 'you' ? ' style="opacity:0.45"' : ''}>
       <td><b>${l.address}</b><br><span style="font-size:11.5px;color:#9fb0c8">${l.beds}bd ${l.baths}ba · ${l.land}m²</span></td>
       <td>${status}</td><td>${price}</td>
@@ -1369,9 +1555,19 @@ function nearestListing() {
   return best;
 }
 
+function nearestAgent() {
+  for (const id in openHomes) {
+    const a = openHomes[id].agent;
+    if (Math.hypot(player.pos.x - a.position.x, player.pos.z - a.position.z) < 3.4) return byId[id];
+  }
+  return null;
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyE' || game.phase !== 'explore') return;
   if (!noOverlaysOpen()) return;
+  const agent = nearestAgent();
+  if (agent) return openChat(agent, false);
   const l = nearestListing();
   if (l) openPanel(l.id);
 });
@@ -1406,8 +1602,12 @@ function animate() {
 
   const prompt = $('prompt');
   if (game.phase === 'explore' && noOverlaysOpen()) {
-    const l = nearestListing();
-    if (l) {
+    const agent = nearestAgent();
+    const l = agent ?? nearestListing();
+    if (agent) {
+      prompt.innerHTML = `<b>E</b> · chat with Ray, the agent — ${agent.address}`;
+      show(prompt);
+    } else if (l) {
       prompt.innerHTML = `<b>E</b> · listing — ${l.address} (${l.saleType === 'auction' ? 'auction' : 'private sale'})`;
       show(prompt);
     } else hide(prompt);
@@ -1439,8 +1639,16 @@ window.__game = {
   listings: () => listings.map((l) => ({
     id: l.id, saleType: l.saleType, isNew: !!l.isNew, guide: l.guide, asking: l.asking ?? null,
     trueValue: l.trueValue, reserve: l.reserve, vendorMin: l.vendorMin ?? null,
+    interest: l.interest ?? null,
     ownersCorp: l.ownersCorp ?? null, sold: game.soldTo[l.id] ?? null,
   })),
+  chat: (id, phone = false) => openChat(byId[id], phone),
+  ask: (qid) => {
+    if (!chatListing) return false;
+    askAgent(chatListing, chatQuestions(chatListing).find((q) => q.id === qid) ?? { id: qid, label: qid });
+    return true;
+  },
+  closeChat: () => closeChat(),
   preapprove: () => applyForPreApproval(),
   start: (diff, fhb) => {
     if (diff) document.querySelector(`#difficulty-row .choice[data-diff="${diff}"]`)?.click();

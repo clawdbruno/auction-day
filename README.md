@@ -63,6 +63,14 @@ And the street is a scene, not a set:
 - **Open homes feel open** — rival buyers wander the hallways of every unsold
   listing (walking room-to-room via the hall, not through walls), an agent holds
   the front door, brochures on a table on the porch.
+- **Talk to the agent** — walk up to Ray at the open (E) or 📞 call from the
+  listing. Ask about interest, price expectations, why they're selling, time on
+  market, other offers. Every answer is spin with a real signal inside: the
+  interest level he's dancing around genuinely drives how many bidders turn up on
+  auction day and whether rival offers appear on private sales. What you suss out
+  lands in your notes (M). Quiet auction campaign? Ask the right questions and he
+  might take a **pre-auction offer** to the vendor — on auction terms: no
+  cooling-off within 3 clear business days of an advertised auction (s31).
 - **Auction theatre** — each AI rival has a body in the crowd, and their arm
   shoots up with every bid; the auctioneer's gavel hand hovers on the final calls.
 - **Synthesised ambience** — kookaburra cackles, magpie warbles, and a two-stroke

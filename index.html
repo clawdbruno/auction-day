@@ -92,6 +92,18 @@
     }
 
     /* choice chips */
+    /* agent chat */
+    #chat-log { background: rgba(0,0,0,0.25); border-radius: 10px; padding: 14px; margin: 12px 0;
+      max-height: 42vh; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+    .bubble { max-width: 86%; padding: 9px 13px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; }
+    .bubble.agent { background: #f7f4ee; color: #2a3440; align-self: flex-start; border-bottom-left-radius: 3px; }
+    .bubble.agent b { color: #0b6b3a; }
+    .bubble.you { background: rgba(255,205,0,0.16); border: 1px solid rgba(255,205,0,0.4); color: var(--gold);
+      align-self: flex-end; border-bottom-right-radius: 3px; }
+    .bubble .tell { display: block; margin-top: 5px; font-style: italic; font-size: 12px; color: #8b98ab; }
+    #chat-questions { display: flex; flex-direction: column; gap: 7px; }
+    #chat-questions .btn { text-align: left; font-weight: 600; font-size: 13.5px; padding: 9px 14px; }
+
     .choicerow { display: flex; gap: 8px; margin: 6px 0 4px; flex-wrap: wrap; }
     .choice { flex: 1; min-width: 105px; cursor: pointer; text-align: center; padding: 9px 8px; border-radius: 9px;
       border: 1.5px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); font-size: 13px; font-weight: 600; }
@@ -275,6 +287,7 @@
       </div>
       <div class="btnrow">
         <button class="btn" id="lp-buy-btn"></button>
+        <button class="btn secondary" id="lp-call-btn">📞 Call the agent</button>
         <button class="btn secondary" id="lp-close-btn">Keep looking</button>
       </div>
     </div>
@@ -287,7 +300,7 @@
       <p class="sub" id="offer-sub"></p>
       <h3>Your offer</h3>
       <div class="choicerow" id="offer-amounts"></div>
-      <label class="check"><input type="checkbox" id="offer-stf" checked />
+      <label class="check" id="offer-stf-label"><input type="checkbox" id="offer-stf" checked />
         Subject to finance <span style="color:#9fb0c8; font-size:12.5px">— if the bank's valuation lets you down, you can walk away with your deposit. Vendors like offers without it.</span></label>
       <p class="sub">Private sales come with a 3-business-day cooling-off period (0.2% penalty). Auctions don't. This is your safest way to buy — use it.</p>
       <div class="btnrow">
@@ -359,6 +372,16 @@
         <button class="btn" id="res-continue"></button>
         <button class="btn secondary hidden" id="res-epilogue"></button>
       </div>
+    </div>
+  </div>
+
+  <!-- AGENT CHAT -->
+  <div id="chat-panel" class="overlay hidden">
+    <div class="card" style="max-width: 560px;">
+      <h2 id="chat-title">Ray Wight — Wattlebrook Real Estate</h2>
+      <div class="sub" id="chat-sub"></div>
+      <div id="chat-log"></div>
+      <div id="chat-questions"></div>
     </div>
   </div>
 

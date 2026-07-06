@@ -16,6 +16,8 @@ export const LISTINGS = [
     reserve: 872000,
     repairCost: 8000,
     desc: 'Period charm on a north-facing block. Ornate ceilings, original floorboards, and a jacaranda out the back. Nothing to do but move in — or so the agent reckons.',
+    agentWhy: 'Young family — they\'ve already bought in Wattlebrook East, settlement in eight weeks. They need a result on the day.',
+    listedWeeks: 3,
     report: 'Structure sound. Minor rising damp in the laundry and two rotten veranda boards (~$8k). Independent valuation: circa {val}.',
     specialCondition: null,
     palette: { wall: 0xe3ebee, roof: 0x8c3b2e, trim: 0xffffff, floor: 0xa8794f },
@@ -34,6 +36,8 @@ export const LISTINGS = [
     reserve: 918000,
     repairCost: 3000,
     desc: 'Solid as the day it was built. Formal lounge, meals area, and a pergola built for Sunday snags. Walk to Wattlebrook Primary. Private sale — the vendors “aren’t in a hurry”.',
+    agentWhy: 'Empty nesters heading to the Peninsula. No bridging loan, no mortgage, no hurry — they\'ll wait for their number.',
+    listedWeeks: 6,
     report: 'Excellent condition for its age. Gutters need replacing (~$3k). Independent valuation: circa {val} — the asking price is ambitious.',
     specialCondition: null,
     palette: { wall: 0xa85f46, roof: 0x53504a, trim: 0xf2ead9, floor: 0xc9b596 },
@@ -52,6 +56,8 @@ export const LISTINGS = [
     reserve: 655000,
     repairCost: 62000,
     desc: 'First time offered in 60 years! Bring your imagination (and your builder). Huge potential, sold as-is. Negotiable — the family “just wants it done”.',
+    agentWhy: 'It\'s the grandmother\'s place — the family has been arguing about it for a year and they just want it done.',
+    listedWeeks: 9,
     report: '⚠ Active termite damage in the subfloor, restumping required, wiring pre-dates decimal currency. Budget ~$62k before move-in. Independent valuation: circa {val} — offer accordingly.',
     specialCondition: {
       clause: 'Sold strictly as-is: vendor gives no warranty that the rear extension was ever permitted. Your solicitor recommends a price allowance for rectification.',
@@ -72,6 +78,8 @@ export const LISTINGS = [
     reserve: 1015000,
     repairCost: 5000,
     desc: 'Double-storey grandeur with a theatre room, butler’s pantry and zero eaves. The street’s trophy home — expect company on auction day.',
+    agentWhy: 'The owners built again two suburbs over — bigger, of course. They\'d very much like their money out.',
+    listedWeeks: 2,
     report: 'Near new. Minor render cracking (~$5k, cosmetic). Independent valuation: circa {val}. Note: this may be beyond your ceiling.',
     specialCondition: {
       clause: 'Title carries a sewerage easement across the rear 3 metres — nothing can ever be built over it. Priced in by those who read the Section 32.',
@@ -95,6 +103,8 @@ export const LISTINGS = [
     reserve: 745000,
     repairCost: 1000,
     desc: 'Never lived in — the developer’s last one. Priced at $749,000, conspicuously one dollar under the First Home Owner Grant cap. Comes with an owners corporation, which is a whole thing. Read the records.',
+    agentWhy: 'Developer\'s last lot in the project. Their financier wants it off the books this quarter.',
+    listedWeeks: 5,
     report: 'Brand new; only defect-period snags (~$1k). Independent valuation: circa {val}. NEW home: FHOG-eligible under $750k — do not bid past the cap.',
     specialCondition: null,
     ownersCorp: {
@@ -116,6 +126,8 @@ export const LISTINGS = [
     reserve: 895000,
     repairCost: 15000,
     desc: 'Held by one family since 1962. Leadlight windows, deep front veranda, established fruit trees. Deceased estate — it WILL be sold.',
+    agentWhy: 'Deceased estate. The executor has court-approved instructions to sell. It WILL be sold, to someone.',
+    listedWeeks: 4,
     report: 'Good bones. Roof tiles need re-bedding and the bathroom is tired (~$15k). Independent valuation: circa {val}. Deceased estates often sell on the day.',
     specialCondition: {
       clause: 'Deceased estate: the executor requires 30-day settlement and the contract excludes the usual chattels warranty. Fine if you know — a scramble if you don’t.',
