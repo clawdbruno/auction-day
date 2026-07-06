@@ -6,10 +6,14 @@ understand what actually happens, in order, with real-ish numbers.
 
 ## The journey (the game IS the lesson)
 
-1. **Finance first.** Pick a household profile (income, expenses, HECS, credit
-   card limit — lenders assess the *limit*, not the balance) and choose a Big Four
-   bank or a mortgage broker. Serviceability is stress-tested (APRA buffer),
-   approval takes real time (bank ~3 weeks, broker ~1) and **prices rise while you
+1. **Finance first.** Enter your actual income, say whether you're buying with a
+   partner (and enter theirs), pick an expense profile, HECS, and credit card
+   limit — lenders assess the *limit*, not the balance. Borrowing power is then a
+   real serviceability calculation: income tax + Medicare per person, HEM-floored
+   living expenses (banks don't believe anyone spends less), HECS repayments, the
+   3% APRA stress buffer, and a debt-to-income cap — with the assessor's working
+   printed on your pre-approval letter. Too little surplus and you're declined.
+   Approval takes real time (bank ~3 weeks, broker ~1) and **prices rise while you
    wait**. The broker raises government schemes automatically; the bank only
    answers what you ask — tick the box or miss the First Home Guarantee.
 2. **Government schemes, correctly.**

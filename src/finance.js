@@ -36,15 +36,10 @@ export const LENDERS = {
   },
 };
 
-export const INCOMES = [
-  { label: 'Solo — teacher', value: 88000, household: 'single' },
-  { label: 'Couple — teacher + sparky', value: 152000, household: 'couple' },
-  { label: 'Couple — two professionals', value: 205000, household: 'couple' },
-];
 export const EXPENSES = [
-  { label: 'Frugal', note: 'rice, beans, one streaming service', factor: 1.0 },
-  { label: 'Average', note: 'the HEM benchmark shrugs', factor: 0.955 },
-  { label: 'Lifestyle', note: '47 Uber Eats orders on your statements', factor: 0.90 },
+  { label: 'Frugal', note: 'doesn\'t matter — banks apply the HEM floor anyway', mult: 1.0 },
+  { label: 'Average', note: 'the HEM benchmark shrugs', mult: 1.15 },
+  { label: 'Lifestyle', note: '47 Uber Eats orders on your statements', mult: 1.38 },
 ];
 export const CARD_LIMITS = [
   { label: 'No credit card', value: 0 },
@@ -70,15 +65,46 @@ export const SOLICITORS = [
   },
 ];
 
-// Lenders assess ~3.8x your card LIMIT (not balance) against you; HECS trims
-// capacity like another expense; everything is stress-tested ~3% above the
-// actual rate (the APRA buffer). Approximate, directionally honest.
-export function borrowingPower({ lender, income, expenseFactor, hecs, cardLimit }) {
+// Personal income tax, 2024-25 resident brackets + 2% Medicare levy.
+export function incomeTax(gross) {
+  let tax = 0;
+  if (gross > 190000) tax += (gross - 190000) * 0.45;
+  if (gross > 135000) tax += (Math.min(gross, 190000) - 135000) * 0.37;
+  if (gross > 45000) tax += (Math.min(gross, 135000) - 45000) * 0.30;
+  if (gross > 18200) tax += (Math.min(gross, 45000) - 18200) * 0.16;
+  return tax + gross * 0.02;
+}
+
+// A real (simplified) serviceability calculation, the way an assessor runs it:
+// net income, minus HEM-floored living expenses, minus HECS repayments, minus
+// 3.8%/month of your credit card LIMIT — and the surplus must service the loan
+// at the actual rate PLUS the 3% APRA buffer, capped by a debt-to-income ratio.
+export function borrowingPower({ lender, you, partner, household, expenseMult, hecs, cardLimit }) {
   const L = LENDERS[lender];
-  let power = income * L.factor * expenseFactor;
-  if (hecs) power *= 0.93;
-  power -= cardLimit * 3.8;
-  return Math.max(0, round1k(power));
+  const gross = you + (partner || 0);
+  const netMonthly = (gross - incomeTax(you) - incomeTax(partner || 0)) / 12;
+
+  // HEM floor: rises with household size and creeps up with income
+  const hemBase = household === 'couple' ? 3400 : 2250;
+  const hem = hemBase + Math.max(0, netMonthly - hemBase) * 0.10;
+  let expenses = hem * expenseMult;
+  if (lender === 'bank') expenses *= 1.06; // conservative expense loading
+
+  const hecsMonthly = hecs ? (you * 0.055) / 12 : 0; // repayment scales with income
+  const cardMonthly = cardLimit * 0.038;
+
+  const surplus = Math.max(0, netMonthly - expenses - hecsMonthly - cardMonthly);
+  const assessRate = L.rate + 0.03; // the APRA serviceability buffer
+  const r = assessRate / 12;
+  const serviceable = surplus * (1 - Math.pow(1 + r, -360)) / r;
+
+  const dtiCap = gross * (lender === 'broker' ? 6.5 : 6.0);
+  const power = Math.max(0, round1k(Math.min(serviceable, dtiCap)));
+  return {
+    power, gross, netMonthly, hem, expenses, surplus,
+    hecsMonthly, cardMonthly, assessRate,
+    dtiCapped: serviceable > dtiCap,
+  };
 }
 
 export function monthlyRepayment(loan, rate) {

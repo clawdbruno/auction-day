@@ -6,7 +6,7 @@ import { Auction } from './auction.js';
 import { Ambience } from './ambience.js';
 import {
   fmt, round1k, settlement, maxPurchase, monthlyRepayment, borrowingPower,
-  LENDERS, INCOMES, EXPENSES, CARD_LIMITS, SOLICITORS, LOAN_TYPES,
+  LENDERS, EXPENSES, CARD_LIMITS, SOLICITORS, LOAN_TYPES,
   REPORT_COST, OC_RECORDS_COST, DEPOSIT_PCT, COOLING_OFF_PENALTY,
   FHOG_AMOUNT, FHOG_PRICE_CAP, FHBG_PRICE_CAP, FHBG_INCOME_CAP,
 } from './finance.js';
@@ -199,7 +199,6 @@ function chipRow(rowId, items, selIdx = 0) {
     row.appendChild(el);
   });
 }
-chipRow('income-row', INCOMES.map((x) => ({ ...x, note: fmt(x.value) + ' / yr' })), 1);
 chipRow('expense-row', EXPENSES, 1);
 chipRow('card-row', CARD_LIMITS.map((x) => ({ ...x, note: x.value ? '−' + fmt(x.value * 3.8) + ' capacity' : 'lenders love this' })), 0);
 chipRow('lender-row', [
@@ -215,6 +214,17 @@ $('hecs-chip').addEventListener('click', () => {
   $('hecs-chip').classList.toggle('sel');
   hide($('letter')); hide($('start-btn'));
 });
+document.querySelectorAll('#partner-row .choice').forEach((el) => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('#partner-row .choice').forEach((c) => c.classList.remove('sel'));
+    el.classList.add('sel');
+    $('partner-field').classList.toggle('hidden', el.dataset.partner !== 'couple');
+    hide($('letter')); hide($('start-btn'));
+  });
+});
+for (const id of ['income-you', 'income-partner']) {
+  $(id).addEventListener('input', () => { hide($('letter')); hide($('start-btn')); });
+}
 $('guarantor-chip').addEventListener('click', () => {
   $('guarantor-chip').classList.toggle('sel');
   hide($('letter')); hide($('start-btn'));
@@ -229,32 +239,49 @@ document.querySelectorAll('#difficulty-row .choice').forEach((el) => {
 
 const selIdx = (rowId) => Number($(rowId).querySelector('.choice.sel')?.dataset.idx ?? 0);
 
+const readIncome = (id) => Math.max(0, Math.min(2000000, Math.round(Number($(id).value) || 0)));
+
 function applyForPreApproval() {
   const lender = selIdx('lender-row') === 0 ? 'bank' : 'broker';
-  const inc = INCOMES[selIdx('income-row')];
-  const expenseFactor = EXPENSES[selIdx('expense-row')].factor;
+  const household = document.querySelector('#partner-row .choice.sel')?.dataset.partner === 'couple' ? 'couple' : 'single';
+  const you = readIncome('income-you');
+  const partner = household === 'couple' ? readIncome('income-partner') : 0;
+  const expenseMult = EXPENSES[selIdx('expense-row')].mult;
   const cardLimit = CARD_LIMITS[selIdx('card-row')].value;
   const hecs = $('hecs-chip').classList.contains('sel');
   const askedSchemes = $('ask-schemes').checked;
   game.fhb = $('fhb-check').checked;
 
-  const power = borrowingPower({ lender, income: inc.value, expenseFactor, hecs, cardLimit });
+  const bp = borrowingPower({ lender, you, partner, household, expenseMult, hecs, cardLimit });
+  if (bp.power < 50000) {
+    $('letter').innerHTML = `<div class="lh">📄 Application declined — ${LENDERS[lender].name}</div>
+      On ${fmt(bp.gross)} gross (${fmt(bp.netMonthly)}/month after tax), assessed living costs of
+      ${fmt(bp.expenses)}/month${hecs ? ', HECS repayments' : ''}${cardLimit ? ', and that credit card limit' : ''}
+      leave <b>${fmt(bp.surplus)}/month</b> to service a loan at ${(bp.assessRate * 100).toFixed(2)}% (rate + APRA buffer).
+      That services a gym membership, not a mortgage. Adjust the inputs and try again.`;
+    show($('letter'));
+    hide($('start-btn'));
+    game.preApproval = 0;
+    return;
+  }
+
+  const power = bp.power;
   game.preApproval = power;
   game.lender = lender;
   game.rate = LENDERS[lender].rate;
-  game.income = inc.value;
-  game.household = inc.household;
+  game.income = bp.gross;
+  game.household = household;
   game.solicitor = SOLICITORS[selIdx('solicitor-row')];
 
   game.guarantor = $('guarantor-chip').classList.contains('sel');
 
   // First Home Guarantee: income caps, someone has to raise it, and it doesn't stack with a guarantor
-  const incomeOk = inc.value <= FHBG_INCOME_CAP[inc.household];
+  const incomeOk = bp.gross <= FHBG_INCOME_CAP[household];
   const raised = lender === 'broker' || askedSchemes;
   game.schemes.fhbg = game.fhb && incomeOk && raised && !game.guarantor;
   game.schemes.fhbgWhy = !game.fhb ? ''
     : game.guarantor ? `Not used — you're going the family-guarantee route instead. The two don't combine; LMI is waived either way, the difference is whose house carries the risk.`
-    : !incomeOk ? `Household income ${fmt(inc.value)} exceeds the ${fmt(FHBG_INCOME_CAP[inc.household])} cap — not eligible.`
+    : !incomeOk ? `Household income ${fmt(bp.gross)} exceeds the ${fmt(FHBG_INCOME_CAP[household])} ${household} cap — not eligible.`
     : !raised ? `You were eligible, but nobody mentioned it. The teller answered exactly what you asked. (Tick “ask about government schemes”, or use a broker.)`
     : `Eligible ✓ — buy at or under ${fmt(FHBG_PRICE_CAP)} with just 5% deposit and NO lenders mortgage insurance. Go over the cap and LMI comes straight back.`;
 
@@ -265,10 +292,12 @@ function applyForPreApproval() {
     <div class="lh">📄 Conditional pre-approval — ${L.name}</div>
     After ${L.approvalWeeks} week${L.approvalWeeks > 1 ? 's' : ''} of payslips, bank statements and one awkward
     phone call about your spending, you may borrow up to <span class="big">${fmt(power)}</span><br>
-    at ${(L.rate * 100).toFixed(2)}% p.a. — about <b>${fmt(repay)}/month</b> over 30 years if fully drawn
-    (serviceability was stress-tested ~3% higher — the APRA buffer).
-    ${cardLimit ? `<br>Your ${fmt(cardLimit)} credit card limit cost you ~${fmt(cardLimit * 3.8)} of borrowing power — lenders assess the limit, not the balance.` : ''}
-    ${hecs ? `<br>HECS trimmed your capacity too — repayments count as an expense.` : ''}
+    at ${(L.rate * 100).toFixed(2)}% p.a. — about <b>${fmt(repay)}/month</b> over 30 years if fully drawn.<br><br>
+    <b>The assessor's working:</b> ${fmt(bp.gross)} gross${household === 'couple' ? ' combined' : ''} →
+    ${fmt(bp.netMonthly)}/mo after tax − ${fmt(bp.expenses)}/mo living costs
+    (HEM${bp.expenses <= bp.hem * 1.01 ? ' floor — banks don\'t believe anyone spends less' : '-based'})${hecs ? ` − ${fmt(bp.hecsMonthly)}/mo HECS` : ''}${cardLimit ? ` − ${fmt(bp.cardMonthly)}/mo assessed against your card LIMIT (not the balance)` : ''}
+    = <b>${fmt(bp.surplus)}/mo surplus</b>, stress-tested at ${(bp.assessRate * 100).toFixed(2)}% — the rate plus the 3% APRA buffer.
+    ${bp.dtiCapped ? `<br>⚠ Then capped at ${lender === 'broker' ? '6.5' : '6'}× gross income — the regulator watches debt-to-income even when your surplus doesn't.` : ''}
     <br><br><b>First Home Guarantee:</b> ${game.schemes.fhbgWhy || 'n/a (not a first home buyer).'}
     ${game.guarantor ? `<br><b>Family guarantee:</b> in place ✓ — your parents' equity secures the top slice of the loan, so LMI is waived at any LVR. They signed after independent legal advice (the bank insists). Their home is exposed until your equity passes ~20%.` : ''}
     <br><b>First Home Owner Grant:</b> $10,000 — but only for a NEW home under ${fmt(FHOG_PRICE_CAP)}. Established houses don't qualify, no matter what your uncle reckons.
@@ -1650,6 +1679,12 @@ window.__game = {
   },
   closeChat: () => closeChat(),
   preapprove: () => applyForPreApproval(),
+  setIncome: (you, partner = null) => {
+    $('income-you').value = you;
+    const chips = document.querySelectorAll('#partner-row .choice');
+    if (partner != null) { chips[1].click(); $('income-partner').value = partner; }
+    else chips[0].click();
+  },
   start: (diff, fhb) => {
     if (diff) document.querySelector(`#difficulty-row .choice[data-diff="${diff}"]`)?.click();
     if (fhb !== undefined) $('fhb-check').checked = fhb;
