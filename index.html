@@ -200,7 +200,7 @@
 
   <div id="crosshair" class="hidden"></div>
   <div id="prompt" class="hidden"></div>
-  <div id="hint" class="hidden">WASD move &nbsp;·&nbsp; mouse look &nbsp;·&nbsp; walk through the gate and front door to inspect inside &nbsp;·&nbsp; <b>E</b> for the listing &nbsp;·&nbsp; ESC frees the cursor</div>
+  <div id="hint" class="hidden">WASD move &nbsp;·&nbsp; mouse look &nbsp;·&nbsp; walk through the gate and front door to inspect inside &nbsp;·&nbsp; <b>E</b> listing &nbsp;·&nbsp; <b>M</b> your notes &nbsp;·&nbsp; ESC frees the cursor</div>
 
   <!-- START / FINANCE WIZARD -->
   <div id="start-screen" class="overlay">
@@ -209,6 +209,7 @@
       <p class="sub">Banksia Street, Wattlebrook. Six homes: three going under the hammer, three for private sale.
         You're a first home buyer, and the game plays by the real rules — no finance, no keys.
         Step one happens before you ever see a house: <b>getting your loan pre-approved.</b></p>
+      <button class="btn hidden" id="resume-btn" style="margin-top: 14px;"></button>
 
       <h3>Market conditions</h3>
       <div class="choicerow" id="difficulty-row">
@@ -357,6 +358,18 @@
       <div class="btnrow">
         <button class="btn" id="res-continue"></button>
         <button class="btn secondary hidden" id="res-epilogue"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MARKET SUMMARY (M) -->
+  <div id="summary-panel" class="overlay hidden">
+    <div class="card" style="max-width: 720px;">
+      <h2>🏘 Banksia Street — your notes</h2>
+      <div class="sub" id="summary-sub"></div>
+      <div id="summary-body" style="margin-top: 12px;"></div>
+      <div class="btnrow">
+        <button class="btn" id="summary-close">Back to the street (M)</button>
       </div>
     </div>
   </div>

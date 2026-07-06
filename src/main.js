@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { LISTINGS } from './listings.js';
-import { buildWorld, buildPerson } from './world.js';
+import { buildWorld, buildPerson, buildCar, HOUSE_DIMS } from './world.js';
 import { Player } from './player.js';
 import { Auction } from './auction.js';
+import { Ambience } from './ambience.js';
 import {
   fmt, round1k, settlement, maxPurchase, monthlyRepayment, borrowingPower,
   LENDERS, INCOMES, EXPENSES, CARD_LIMITS, SOLICITORS, LOAN_TYPES,
@@ -93,6 +94,7 @@ scene.add(sun);
 const { houses, solids } = buildWorld(scene, listings, signTextFor);
 const player = new Player(camera, renderer.domElement);
 player.solids = solids;
+const ambience = new Ambience();
 
 addEventListener('resize', () => {
   if (innerWidth <= 0 || innerHeight <= 0) return; // headless/hidden windows fire 0×0 resizes
@@ -287,6 +289,9 @@ function startGame() {
   show($('hint'));
   updateHUD();
   toast(`Pre-approved after ${LENDERS[game.lender].approvalWeeks} week${LENDERS[game.lender].approvalWeeks > 1 ? 's' : ''}. Prices rose while you waited — welcome to week ${game.week}.`, 5200);
+  spawnAllOpenHomes();
+  ambience.start();
+  saveGame();
   player.enabled = true;
   player.requestLock();
 }
@@ -373,6 +378,7 @@ $('lp-report-btn').addEventListener('click', () => {
   game.savings -= REPORT_COST;
   game.reports.add(panelListing.id);
   updateHUD();
+  saveGame();
   blip(880, 0.1, 'sine');
   openPanel(panelListing.id);
 });
@@ -382,6 +388,7 @@ $('lp-review-btn').addEventListener('click', () => {
   game.reviews.add(panelListing.id);
   if (Math.random() < game.solicitor.missChance) game.reviewMissed.add(panelListing.id);
   updateHUD();
+  saveGame();
   blip(880, 0.1, 'sine');
   openPanel(panelListing.id);
 });
@@ -390,6 +397,7 @@ $('lp-oc-btn').addEventListener('click', () => {
   game.savings -= OC_RECORDS_COST;
   game.ocRead.add(panelListing.id);
   updateHUD();
+  saveGame();
   blip(880, 0.1, 'sine');
   openPanel(panelListing.id);
 });
@@ -485,6 +493,7 @@ function loseListing(l, msg) {
   game.offerRound = 0;
   game.soldTo[l.id] = 'rival';
   houses[l.id].sign.userData.updateSign(signTextFor(l), 'rival');
+  removeOpenHome(l.id);
   advanceWeek();
   toast(msg, 5200);
   backToStreet();
@@ -659,9 +668,123 @@ function settlementDay(l, price, valCap, inspectionCost) {
   ]);
 }
 
+// ---------- open homes: the competition, visible ----------
+
+// house-local (x, z) -> world, accounting for lot rotation and the 3.5 setback
+function houseLocalToWorld(l, x, z) {
+  const lz = z - 3.5;
+  return l.lot.facing === 1
+    ? new THREE.Vector3(l.lot.x + lz, 0, l.lot.z - x)
+    : new THREE.Vector3(l.lot.x - lz, 0, l.lot.z + x);
+}
+
+const openHomes = {}; // listingId -> { group, buyers: [...], agent }
+const BUYER_COLORS = [0x7d5a8a, 0x4f7d6b, 0xb0704a, 0x5a6e8c, 0x8c5a5a, 0x6e7d4f];
+
+function spawnOpenHome(l) {
+  if (openHomes[l.id] || game.soldTo[l.id]) return;
+  const group = new THREE.Group();
+  const rooms = houses[l.id].rooms;
+  const [, d] = HOUSE_DIMS[l.id];
+  const buyers = [];
+  const n = 1 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < n; i++) {
+    const p = buildPerson(BUYER_COLORS[Math.floor(Math.random() * BUYER_COLORS.length)]);
+    const room = rooms[Math.floor(Math.random() * rooms.length)];
+    p.position.copy(houseLocalToWorld(l, room.cx, room.cz));
+    p.position.y = 0.13;
+    group.add(p);
+    buyers.push({
+      person: p, listing: l,
+      room, path: [], idleUntil: performance.now() + Math.random() * 3000,
+    });
+  }
+  // the agent, planted at the front door with a smile that never moves
+  const agent = buildPerson(0x1f2937);
+  agent.position.copy(houseLocalToWorld(l, 0.9, d / 2 + 1.5));
+  const street = houseLocalToWorld(l, 0.9, d / 2 + 8);
+  agent.lookAt(street.x, 0, street.z);
+  group.add(agent);
+  scene.add(group);
+  openHomes[l.id] = { group, buyers, agent };
+}
+
+function removeOpenHome(id) {
+  const oh = openHomes[id];
+  if (!oh) return;
+  scene.remove(oh.group);
+  delete openHomes[id];
+}
+
+function spawnAllOpenHomes() {
+  for (const l of listings) if (!game.soldTo[l.id]) spawnOpenHome(l);
+}
+
+// walk room -> hallway -> hallway -> room so nobody ghosts through a wall
+function planPath(b) {
+  const l = b.listing;
+  const rooms = houses[l.id].rooms;
+  let target = rooms[Math.floor(Math.random() * rooms.length)];
+  if (rooms.length > 1) {
+    while (target === b.room) target = rooms[Math.floor(Math.random() * rooms.length)];
+  }
+  b.path = [
+    houseLocalToWorld(l, 0, b.room.cz),
+    houseLocalToWorld(l, 0, target.cz),
+    houseLocalToWorld(l, target.cx, target.cz),
+  ];
+  b.room = target;
+}
+
+function updateOpenHomes(dt) {
+  const now = performance.now();
+  for (const id in openHomes) {
+    for (const b of openHomes[id].buyers) {
+      if (now < b.idleUntil) {
+        b.person.rotation.y += dt * 0.4; // having a good look at the cornices
+        continue;
+      }
+      if (!b.path.length) { planPath(b); continue; }
+      const targetPos = b.path[0];
+      const p = b.person.position;
+      const dx = targetPos.x - p.x, dz = targetPos.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.15) {
+        b.path.shift();
+        if (!b.path.length) b.idleUntil = now + 2500 + Math.random() * 4000;
+        continue;
+      }
+      const step = Math.min(dist, 1.1 * dt);
+      p.x += (dx / dist) * step;
+      p.z += (dz / dist) * step;
+      b.person.rotation.y = Math.atan2(dx, dz);
+    }
+  }
+}
+
+// ---------- arm raises (bids, in the flesh) ----------
+
+const armAnims = []; // { pivot, until }
+
+function raiseArm(person, ms = 1500) {
+  if (!person?.userData.rightArm) return;
+  armAnims.push({ pivot: person.userData.rightArm, until: performance.now() + ms });
+}
+
+function updateArms(dt) {
+  const now = performance.now();
+  for (let i = armAnims.length - 1; i >= 0; i--) {
+    const a = armAnims[i];
+    const target = now < a.until ? -2.7 : 0.14;
+    a.pivot.rotation.z += (target - a.pivot.rotation.z) * Math.min(1, dt * 12);
+    if (now > a.until && Math.abs(a.pivot.rotation.z - 0.14) < 0.02) armAnims.splice(i, 1);
+  }
+}
+
 // ---------- auction ----------
 
 let crowd = null;
+let rivalActors = {}; // rival name -> crowd person
 
 function maybeStartAuction(l) {
   if (!game.reviews.has(l.id)) {
@@ -689,6 +812,7 @@ function maybeStartAuction(l) {
 
 function spawnCrowd(house) {
   crowd = new THREE.Group();
+  crowd.userData.people = [];
   const { frontPos, centre } = house;
   const toHouse = centre.clone().sub(frontPos).normalize();
   const colors = [0x3a6ea5, 0x8a4f7d, 0x577859, 0xc06636, 0x666a70, 0x9d3c3c, 0x4a6b8a, 0x7d6b4f];
@@ -702,11 +826,13 @@ function spawnCrowd(house) {
     p.position.copy(pos);
     p.lookAt(centre.x, 0, centre.z);
     crowd.add(p);
+    crowd.userData.people.push(p);
   }
   const auctioneer = buildPerson(0xffcd00);
   auctioneer.position.copy(frontPos.clone().addScaledVector(toHouse, 4.6));
   auctioneer.lookAt(frontPos.x, 0, frontPos.z);
   crowd.add(auctioneer);
+  crowd.userData.auctioneer = auctioneer;
   scene.add(crowd);
 }
 
@@ -733,6 +859,7 @@ function startAuction(id) {
   freeze();
 
   const house = houses[id];
+  removeOpenHome(id); // the lookers make way for the bidders
   const back = house.frontPos.clone().sub(house.centre).normalize().multiplyScalar(2.5);
   player.teleport(house.frontPos.x + back.x, house.frontPos.z + back.z);
   player.lookAt(house.centre);
@@ -751,6 +878,11 @@ function startAuction(id) {
     playerMax: playerMax(l),
     heat: game.heat,
     onEvent: (type, data) => onAuctionEvent(l, type, data),
+  });
+  // each rival gets a body in the crowd; their bids raise that arm
+  rivalActors = {};
+  game.auction.rivals.forEach((r, i) => {
+    rivalActors[r.name] = crowd.userData.people[i * 2] ?? crowd.userData.people[i];
   });
   game.auction.start();
 }
@@ -772,7 +904,11 @@ function onAuctionEvent(l, type, data) {
       leader.textContent = data.who === 'vendor' ? 'Vendor bid (protecting the reserve)' : `Leading bid: ${data.who}`;
       leader.classList.remove('you');
       blip(430, 0.09, 'sine', 0.05);
+      raiseArm(data.who === 'vendor' ? crowd?.userData.auctioneer : rivalActors[data.who]);
     }
+  }
+  if (type === 'call') {
+    if (data.stage >= 2) raiseArm(crowd?.userData.auctioneer, 900); // gavel hand hovering
   }
   if (type === 'sold') {
     gavel();
@@ -810,6 +946,7 @@ function backToStreet() {
   game.phase = 'explore';
   updateHUD();
   if (!listings.some((l) => !game.soldTo[l.id])) return gameOver();
+  saveGame();
   unfreeze();
 }
 
@@ -833,7 +970,7 @@ function advanceWeek() {
 // ---------- the RBA does not care about your Saturday plans ----------
 
 function noOverlaysOpen() {
-  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'negotiate-panel']
+  return ['dialog-panel', 'contract-panel', 'result-panel', 'listing-panel', 'offer-panel', 'summary-panel']
     .every((id) => !$(id) || $(id).classList.contains('hidden'));
 }
 
@@ -847,6 +984,7 @@ function fireRateRise() {
   const oldRepay = monthlyRepayment(oldPre, oldRate);
   const newRepay = monthlyRepayment(game.preApproval, game.rate);
   updateHUD();
+  saveGame();
   dialog('📈 The RBA moves — cash rate up 0.50%', `Tuesday, 2:30pm. The Reserve Bank lifts the cash rate half a percent and every lender passes it on by Friday.<br><br>
     <b>Your rate:</b> ${(oldRate * 100).toFixed(2)}% → <b>${(game.rate * 100).toFixed(2)}%</b><br>
     <b>Your pre-approval:</b> ${fmt(oldPre)} → <b>${fmt(game.preApproval)}</b> — the lender reassessed your serviceability at the higher rate. Nobody rings to tell you; you find out when you ask.<br>
@@ -872,6 +1010,7 @@ function settle(l, price, valCap = null, extras = {}) {
   game.offerRound = 0;
   game.soldTo[l.id] = 'you';
   houses[l.id].sign.userData.updateSign(signTextFor(l), 'you');
+  removeOpenHome(l.id);
 
   const s = settlement(price, game.savings, game.preApproval, game.fhb, valCap, settleOpts(l));
   const missed = game.reviewMissed.has(l.id);
@@ -943,10 +1082,12 @@ function settle(l, price, valCap = null, extras = {}) {
   show($('res-epilogue'));
   show($('result-panel'));
   updateHUD();
+  saveGame();
 }
 
 function gameOver() {
   game.phase = 'over';
+  clearSave();
   freeze();
   $('res-title').textContent = '📉 Priced out';
   $('res-sub').textContent = `Every home on Banksia Street sold to someone else. ${game.week} weeks of Saturdays, and nothing to show but sausage sizzle receipts.`;
@@ -988,6 +1129,7 @@ function epilogueRate(month) {
 
 function runEpilogue() {
   freeze();
+  clearSave(); // the run is over either way
   hide($('result-panel'));
   if (game.purchase) ownedEpilogue();
   else pricedOutEpilogue();
@@ -1081,6 +1223,138 @@ function pricedOutEpilogue() {
   show($('result-panel'));
 }
 
+// ---------- save / resume ----------
+
+const SAVE_KEY = 'auction-day-save-v1';
+
+function saveGame() {
+  if (game.phase !== 'explore' && game.phase !== 'settled') return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      v: 1,
+      phase: game.phase, week: game.week, savings: game.savings,
+      preApproval: game.preApproval, rate: game.rate, lender: game.lender,
+      income: game.income, household: game.household,
+      solicitorId: game.solicitor.id, loanTypeId: game.loanType.id,
+      schemes: game.schemes, fhb: game.fhb, heat: game.heat, guarantor: game.guarantor,
+      soldTo: game.soldTo, ownedId: game.ownedId,
+      reports: [...game.reports], reviews: [...game.reviews],
+      reviewMissed: [...game.reviewMissed], ocRead: [...game.ocRead],
+      rateRiseDone: game.rateRiseDone, marketGrowth: game.marketGrowth, marketIndex: game.marketIndex,
+      purchase: game.purchase ? { id: game.purchase.listing.id, price: game.purchase.price, loan: game.purchase.loan, fhbg: game.purchase.fhbg } : null,
+      pos: { x: player.pos.x, z: player.pos.z, yaw: player.yaw },
+      listings: Object.fromEntries(listings.map((l) => [l.id, {
+        guide: l.guide, trueValue: l.trueValue, reserve: l.reserve,
+        asking: l.asking ?? null, vendorMin: l.vendorMin ?? null,
+      }])),
+    }));
+  } catch { /* private browsing etc — the game just won't persist */ }
+}
+
+function clearSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch { /* fine */ }
+}
+
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d?.v === 1 ? d : null;
+  } catch { return null; }
+}
+
+function resumeGame(d) {
+  Object.assign(game, {
+    phase: d.phase, week: d.week, savings: d.savings,
+    preApproval: d.preApproval, rate: d.rate, lender: d.lender,
+    income: d.income, household: d.household,
+    schemes: d.schemes, fhb: d.fhb, heat: d.heat, guarantor: d.guarantor,
+    soldTo: d.soldTo, ownedId: d.ownedId,
+    rateRiseDone: d.rateRiseDone, marketGrowth: d.marketGrowth, marketIndex: d.marketIndex,
+  });
+  game.solicitor = SOLICITORS.find((s) => s.id === d.solicitorId) ?? SOLICITORS[1];
+  game.loanType = LOAN_TYPES.find((t) => t.id === d.loanTypeId) ?? LOAN_TYPES[0];
+  game.reports = new Set(d.reports);
+  game.reviews = new Set(d.reviews);
+  game.reviewMissed = new Set(d.reviewMissed);
+  game.ocRead = new Set(d.ocRead);
+  game.purchase = d.purchase ? { listing: byId[d.purchase.id], price: d.purchase.price, loan: d.purchase.loan, fhbg: d.purchase.fhbg } : null;
+  for (const [id, snap] of Object.entries(d.listings)) {
+    const l = byId[id];
+    if (!l) continue;
+    Object.assign(l, {
+      guide: snap.guide, trueValue: snap.trueValue, reserve: snap.reserve,
+      ...(snap.asking != null ? { asking: snap.asking } : {}),
+      ...(snap.vendorMin != null ? { vendorMin: snap.vendorMin } : {}),
+    });
+    houses[id].sign.userData.updateSign(signTextFor(l), game.soldTo[id] ?? null);
+  }
+  hide($('start-screen'));
+  show($('hud'));
+  show($('crosshair'));
+  show($('hint'));
+  if (game.phase === 'settled') $('hint').innerHTML = '🏡 It\'s yours. Press <b>T</b> any time to fast-forward five years.';
+  updateHUD();
+  spawnAllOpenHomes();
+  ambience.start();
+  player.teleport(d.pos.x, d.pos.z, d.pos.yaw);
+  player.enabled = true;
+  player.requestLock();
+  toast(`Resumed — week ${game.week}, ${fmt(game.savings)} in savings. The hunt continues.`, 4200);
+}
+
+{
+  const saved = loadSave();
+  if (saved) {
+    const btn = $('resume-btn');
+    btn.textContent = `▶ Resume your search — week ${saved.week}, ${fmt(saved.savings)} saved`;
+    show(btn);
+    btn.addEventListener('click', () => resumeGame(loadSave()));
+  }
+}
+
+// ---------- your notes (M) ----------
+
+function summaryOpen() { return !$('summary-panel').classList.contains('hidden'); }
+
+function toggleSummary() {
+  if (summaryOpen()) {
+    hide($('summary-panel'));
+    unfreeze();
+    return;
+  }
+  if (game.phase !== 'explore' && game.phase !== 'settled') return;
+  if (!noOverlaysOpen()) return;
+  freeze();
+  $('summary-sub').textContent = `Week ${game.week} · savings ${fmt(game.savings)} · ceiling ${fmt(playerMax())}`;
+  const rows = listings.map((l) => {
+    const sold = game.soldTo[l.id];
+    const status = sold === 'you' ? '<b style="color:#4cd07d">YOURS 🔑</b>'
+      : sold ? '<span style="color:#ff8f8a">SOLD</span>'
+      : l.saleType === 'auction' ? 'Auction' : 'Private sale';
+    const price = l.saleType === 'auction' ? `${kfmt(l.guide[0])}–${kfmt(l.guide[1])}` : fmt(l.asking);
+    const notes = [];
+    if (game.reports.has(l.id)) notes.push(`B&P ✓ val ~${kfmt(l.trueValue)}${l.repairCost >= 20000 ? ' ⚠repairs' : ''}`);
+    if (game.reviews.has(l.id)) notes.push(game.reviewMissed.has(l.id) ? 'reviewed “✓”' : (l.specialCondition ? 'contract ⚠' : 'contract ✓'));
+    if (l.ownersCorp) notes.push(game.ocRead.has(l.id) ? 'OC read ⚠levy' : 'OC unread');
+    if (l.isNew) notes.push('NEW·FHOG');
+    return `<tr${sold && sold !== 'you' ? ' style="opacity:0.45"' : ''}>
+      <td><b>${l.address}</b><br><span style="font-size:11.5px;color:#9fb0c8">${l.beds}bd ${l.baths}ba · ${l.land}m²</span></td>
+      <td>${status}</td><td>${price}</td>
+      <td style="font-size:12px">${notes.join('<br>') || '<span style="color:#8b98ab">no research yet</span>'}</td></tr>`;
+  }).join('');
+  $('summary-body').innerHTML = `<table class="costs" style="font-size:13px">
+    <tr style="color:#9fb0c8;font-size:11px;text-transform:uppercase"><td>Home</td><td>Status</td><td>Price</td><td>Your research</td></tr>
+    ${rows}</table>`;
+  show($('summary-panel'));
+}
+
+$('summary-close').addEventListener('click', toggleSummary);
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyM') toggleSummary();
+});
+
 // ---------- interaction ----------
 
 const raycaster = new THREE.Raycaster();
@@ -1097,13 +1371,14 @@ function nearestListing() {
 
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyE' || game.phase !== 'explore') return;
-  if (!$('listing-panel').classList.contains('hidden')) return;
+  if (!noOverlaysOpen()) return;
   const l = nearestListing();
   if (l) openPanel(l.id);
 });
 
 renderer.domElement.addEventListener('click', () => {
   if (game.phase === 'explore' || game.phase === 'settled') {
+    if (!noOverlaysOpen()) return;
     if (!player.locked) { player.requestLock(); return; }
     if (game.phase !== 'explore') return;
     raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
@@ -1124,11 +1399,13 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   player.update(dt);
   game.auction?.update(dt);
+  updateOpenHomes(dt);
+  updateArms(dt);
 
   if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
 
   const prompt = $('prompt');
-  if (game.phase === 'explore' && $('listing-panel').classList.contains('hidden')) {
+  if (game.phase === 'explore' && noOverlaysOpen()) {
     const l = nearestListing();
     if (l) {
       prompt.innerHTML = `<b>E</b> · listing — ${l.address} (${l.saleType === 'auction' ? 'auction' : 'private sale'})`;
@@ -1189,9 +1466,15 @@ window.__game = {
   collectKeys: () => $('res-continue').click(),
   forceRateRise: () => fireRateRise(),
   epilogue: () => runEpilogue(),
+  toggleSummary: () => toggleSummary(),
+  save: () => saveGame(),
+  clearSave: () => clearSave(),
+  openHomes: () => Object.fromEntries(Object.entries(openHomes).map(([id, oh]) => [id, oh.buyers.length])),
   frame: (dt = 0.016) => {
     player.update(dt);
     game.auction?.update(dt);
+    updateOpenHomes(dt);
+    updateArms(dt);
     if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
     renderer.render(scene, camera);
   },

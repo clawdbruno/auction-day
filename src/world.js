@@ -116,7 +116,7 @@ const WALL_H = 2.6;
 const TOP_Y = FLOOR_Y + WALL_H; // 2.75
 const T = 0.12;
 
-const HOUSE_DIMS = {
+export const HOUSE_DIMS = {
   weatherboard: [8.4, 9.0],
   brick: [10.5, 9.6],
   reno: [7.6, 8.4],
@@ -484,7 +484,94 @@ export function buildPerson(shirtColor) {
   head.position.y = 1.72;
   head.castShadow = true;
   g.add(body, head);
+  // arms on shoulder pivots so one can shoot up with a bid
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.27, 1.42, 0);
+    const arm = box(0.08, 0.52, 0.08, mat(shirtColor));
+    arm.position.y = -0.26;
+    arm.castShadow = false;
+    pivot.add(arm);
+    pivot.rotation.z = side * 0.14; // hanging, slightly out
+    g.add(pivot);
+    if (side === 1) g.userData.rightArm = pivot;
+  }
   return g;
+}
+
+export function buildCar(color) {
+  const g = new THREE.Group();
+  const body = box(1.7, 0.5, 4.1, mat(color), true);
+  body.position.y = 0.55;
+  g.add(body);
+  const cabin = box(1.5, 0.5, 2.0, mat(color));
+  cabin.position.set(0, 1.0, -0.2);
+  g.add(cabin);
+  const glass = box(1.52, 0.32, 1.9, mat(0x9fc4d8));
+  glass.position.set(0, 1.02, -0.2);
+  g.add(glass);
+  const wheelM = mat(0x1c1e21);
+  for (const [wx, wz] of [[-0.8, 1.3], [0.8, 1.3], [-0.8, -1.3], [0.8, -1.3]]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 10), wheelM);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(wx, 0.32, wz);
+    w.castShadow = true;
+    g.add(w);
+  }
+  return g;
+}
+
+function makeStreetSign() {
+  const g = new THREE.Group();
+  const pole = box(0.07, 2.6, 0.07, mat(0x7a7d80));
+  pole.position.y = 1.3;
+  g.add(pole);
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 96;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#0b6b3a';
+  ctx.fillRect(0, 0, 512, 96);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 500, 84);
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 58px Helvetica, Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('BANKSIA ST', 256, 66);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(1.7, 0.32, 0.04),
+    [mat(0x0b6b3a), mat(0x0b6b3a), mat(0x0b6b3a), mat(0x0b6b3a),
+      new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.01 }),
+      new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.01 })]
+  );
+  blade.position.set(0.4, 2.45, 0);
+  blade.castShadow = true;
+  g.add(blade);
+  return g;
+}
+
+function numberPlate(address) {
+  const num = address.split(' ')[0];
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2a2f36';
+  ctx.beginPath();
+  ctx.arc(32, 32, 30, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 34px Helvetica, Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(num, 32, 44);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const plate = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.22, 0.22),
+    new THREE.MeshLambertMaterial({ map: tex, transparent: true })
+  );
+  return plate;
 }
 
 // ---------- the street ----------
@@ -536,6 +623,24 @@ export function buildWorld(scene, listings, signTextFor) {
     world.add(gum);
   }
 
+  // street name signs at each end
+  for (const [sx, sz, rot] of [[6.6, 62, -Math.PI / 2], [-6.6, -62, Math.PI / 2]]) {
+    const sign = makeStreetSign();
+    sign.position.set(sx, 0, sz);
+    sign.rotation.y = rot;
+    world.add(sign);
+  }
+
+  // visitors' cars parked kerbside near the open homes
+  const parkColors = [0xe8e6e0, 0x6b7784, 0x9d3c3c, 0x2f4a63, 0x777d68];
+  for (const z of [-48, -20, 6, 34]) {
+    const side = z % 3 === 0 ? 1 : -1;
+    const car = buildCar(parkColors[Math.floor(Math.random() * parkColors.length)]);
+    car.position.set(side * 4.6, 0, z + (Math.random() - 0.5) * 3);
+    car.rotation.y = side > 0 ? 0 : Math.PI;
+    world.add(car);
+  }
+
   const houses = {};
 
   for (const listing of listings) {
@@ -571,12 +676,30 @@ export function buildWorld(scene, listings, signTextFor) {
     drive.position.set(w / 2 + 1.8, 0.02, (11 + frontFace) / 2);
     lotGroup.add(drive);
 
-    // letterbox + garden
+    // letterbox (numbered) + garden
     const lbox = box(0.3, 0.3, 0.22, mat(listing.palette.trim));
     const lpost = box(0.07, 0.9, 0.07, mat(0x777777));
     lbox.position.set(1.25, 1.0, 10.6);
     lpost.position.set(1.25, 0.45, 10.6);
-    lotGroup.add(lbox, lpost);
+    const plate = numberPlate(listing.address);
+    plate.position.set(1.25, 1.0, 10.72);
+    lotGroup.add(lbox, lpost, plate);
+
+    // a car in the driveway when there's somewhere to put one
+    if (listing.cars >= 1) {
+      const car = buildCar([0xd8d8d8, 0x8a9aa8, 0x8c2f2f, 0x25384f][Math.floor(Math.random() * 4)]);
+      car.position.set(w / 2 + 1.8, 0, 5.5);
+      car.rotation.y = Math.PI + (Math.random() - 0.5) * 0.06;
+      lotGroup.add(car);
+    }
+
+    // the agent's brochure table on the porch
+    const table = box(0.55, 0.72, 0.4, mat(0x8a7156), true);
+    table.position.set(1.5, 0.36, -3.5 + d / 2 + 1.0);
+    const flyers = box(0.34, 0.03, 0.26, mat(0xffffff));
+    flyers.position.set(1.5, 0.74, -3.5 + d / 2 + 1.0);
+    flyers.rotation.y = 0.2;
+    lotGroup.add(table, flyers);
     for (const bx of [-w / 2 + 0.4, w / 2 - 0.4]) {
       const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0), mat(0x55703e));
       bush.position.set(bx, 0.45, frontFace + 0.9);

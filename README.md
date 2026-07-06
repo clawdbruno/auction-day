@@ -58,6 +58,21 @@ Also in the simulation:
   drag, guarantee release at 20% equity, renovation ROI on the fixer-upper — and
   an honest net-position comparison against renting-and-investing the same money.
 
+And the street is a scene, not a set:
+
+- **Open homes feel open** — rival buyers wander the hallways of every unsold
+  listing (walking room-to-room via the hall, not through walls), an agent holds
+  the front door, brochures on a table on the porch.
+- **Auction theatre** — each AI rival has a body in the crowd, and their arm
+  shoots up with every bid; the auctioneer's gavel hand hovers on the final calls.
+- **Synthesised ambience** — kookaburra cackles, magpie warbles, and a two-stroke
+  mower three backyards over. No samples, all WebAudio.
+- **Street dressing** — cars in driveways and parked kerbside, BANKSIA ST street
+  signs, numbered letterboxes.
+- **Save/resume** — progress persists in localStorage; a resume button appears on
+  the title screen mid-run. **M** opens your notes: every listing's status, price,
+  and the research you've paid for, in one panel.
+
 ## Run
 
 ```sh
