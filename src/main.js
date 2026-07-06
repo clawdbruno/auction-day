@@ -7,8 +7,8 @@ import { Ambience } from './ambience.js';
 import {
   fmt, round1k, settlement, maxPurchase, monthlyRepayment, borrowingPower,
   LENDERS, EXPENSES, CARD_LIMITS, SOLICITORS, LOAN_TYPES,
-  REPORT_COST, OC_RECORDS_COST, DEPOSIT_PCT, COOLING_OFF_PENALTY,
-  FHOG_AMOUNT, FHOG_PRICE_CAP, FHBG_PRICE_CAP, FHBG_INCOME_CAP,
+  REPORT_COST, COMPS_COST, OC_RECORDS_COST, DEPOSIT_PCT, COOLING_OFF_PENALTY,
+  FHOG_AMOUNT, FHOG_PRICE_CAP, FHBG_PRICE_CAP, FHBG_INCOME_CAP, lmi,
 } from './finance.js';
 
 // ---------- game state ----------
@@ -45,7 +45,20 @@ const game = {
   purchase: null, // filled at settlement, feeds the epilogue
   agentNotes: {},  // listingId -> { questionId: short note } — what you sussed out
   asked: {},       // listingId -> Set of question ids this conversation-lifetime
+  comps: {},       // listingId -> { avg, rows } — your own valuation homework
+  lessons: [],     // process lessons this run demonstrated, shown at the end
+  insurance: 0,    // building cover premium, chosen before settlement
 };
+
+function lesson(text) {
+  if (!game.lessons.includes(text)) game.lessons.push(text);
+}
+
+function lessonsHTML() {
+  if (!game.lessons.length) return '';
+  return `<div class="sub" style="margin-top: 14px;"><b style="color: var(--gold)">📚 What this run just taught you:</b><br>` +
+    game.lessons.slice(0, 7).map((t) => `· ${t}`).join('<br>') + `</div>`;
+}
 
 const listings = LISTINGS.map((l) => ({ ...l }));
 const byId = Object.fromEntries(listings.map((l) => [l.id, l]));
@@ -360,8 +373,21 @@ function openPanel(id) {
     `<span>🚗 <b>${l.cars}</b> car</span><span>📐 <b>${l.land} m²</b></span>`;
   $('lp-desc').textContent = `“${l.desc}”`;
 
+  if (game.comps[id]) {
+    const c = game.comps[id];
+    $('lp-comps-body').innerHTML = c.rows.map((r) => `${r.addr} — ${r.specs} — sold <b>${fmt(r.price)}</b>, ${r.when}`).join('<br>') +
+      `<br><b>Comparable midpoint: ~${fmt(c.avg)}.</b> That's your number. The guide is theirs.`;
+    show($('lp-comps'));
+    $('lp-comps-btn').textContent = 'Comparable sales ✓';
+    $('lp-comps-btn').disabled = true;
+  } else {
+    hide($('lp-comps'));
+    $('lp-comps-btn').textContent = `Comparable sales report (${fmt(COMPS_COST)})`;
+    $('lp-comps-btn').disabled = game.savings < COMPS_COST;
+  }
+
   if (game.reports.has(id)) {
-    $('lp-report-body').textContent = l.report.replace('{val}', fmt(l.trueValue));
+    $('lp-report-body').textContent = l.report;
     show($('lp-report'));
     $('lp-report-btn').textContent = 'B&P report ✓';
     $('lp-report-btn').disabled = true;
@@ -413,6 +439,31 @@ function closePanel() {
   panelListing = null;
   unfreeze();
 }
+
+const COMP_STREETS = ['23 Wattle Court', '8 Grevillea Avenue', '41 Banksia Street', '5 Correa Place', '17 Melaleuca Drive', '2/9 Hakea Street', '31 Boronia Road'];
+
+function generateComps(l) {
+  const picks = [...COMP_STREETS].sort(() => Math.random() - 0.5).slice(0, 3);
+  const factors = [0.955 + Math.random() * 0.03, 0.99 + Math.random() * 0.03, 1.025 + Math.random() * 0.03];
+  const rows = picks.map((addr, i) => ({
+    addr,
+    specs: `${Math.max(2, l.beds + (i === 2 ? 1 : i === 0 ? -1 : 0))}bd ${l.baths}ba`,
+    price: round1k(l.trueValue * factors[i]),
+    when: `${2 + Math.floor(Math.random() * 8)} wks ago`,
+  }));
+  const avg = round1k(rows.reduce((s, r) => s + r.price, 0) / rows.length);
+  return { avg, rows };
+}
+
+$('lp-comps-btn').addEventListener('click', () => {
+  if (!panelListing || game.comps[panelListing.id]) return;
+  game.savings -= COMPS_COST;
+  game.comps[panelListing.id] = generateComps(panelListing);
+  updateHUD();
+  saveGame();
+  blip(880, 0.1, 'sine');
+  openPanel(panelListing.id);
+});
 
 $('lp-close-btn').addEventListener('click', closePanel);
 $('lp-report-btn').addEventListener('click', () => {
@@ -494,8 +545,9 @@ function openOfferModal(l, roundNote = '') {
     row.appendChild(el);
   });
   if (!row.querySelector('.choice.sel')) row.querySelector('.choice')?.classList.add('sel');
-  // pre-auction contracts run on auction terms — no finance clause to hide behind
+  // pre-auction contracts run on auction terms — no conditions to hide behind
   $('offer-stf-label').style.display = preAuction ? 'none' : '';
+  $('offer-bp-label').style.display = (preAuction || game.reports.has(l.id)) ? 'none' : '';
   $('offer-submit').textContent = preAuction ? 'Put it to them tonight' : 'Submit offer';
   show($('offer-panel'));
 }
@@ -504,14 +556,16 @@ $('offer-cancel').addEventListener('click', () => { hide($('offer-panel')); offe
 $('offer-submit').addEventListener('click', () => {
   const l = offerListing;
   const amount = Number($('offer-amounts').querySelector('.choice.sel')?.dataset.value ?? 0);
-  const stf = l.saleType === 'auction' ? false : $('offer-stf').checked; // auction terms: unconditional
+  const auctionTerms = l.saleType === 'auction'; // pre-auction: unconditional
+  const stf = auctionTerms ? false : $('offer-stf').checked;
+  const bp = auctionTerms || game.reports.has(l.id) ? false : $('offer-bp').checked;
   if (!l || !amount) return;
   hide($('offer-panel'));
   offerListing = null;
-  submitOffer(l, amount, stf);
+  submitOffer(l, amount, stf, false, bp);
 });
 
-function submitOffer(l, amount, stf, isBestAndFinal = false) {
+function submitOffer(l, amount, stf, isBestAndFinal = false, bp = false) {
   game.offerRound += 1;
   const asking = effAsking(l);
   const vendorMin = effVendorMin(l);
@@ -522,21 +576,22 @@ function submitOffer(l, amount, stf, isBestAndFinal = false) {
     const rival = round1k(amount * 1.013 + 3000);
     const matchAmt = round1k(rival + 3000);
     dialog('The agent calls back', `“Look, awkward timing — another party has just put in <b>${fmt(rival)}</b>. The vendor's asked for best and final by 5pm. Where do you want to land?”`, [
-      { label: `Go to ${fmt(matchAmt)}`, disabled: matchAmt > playerMax(l), onClick: () => submitOffer(l, matchAmt, stf, true) },
+      { label: `Go to ${fmt(matchAmt)}`, disabled: matchAmt > playerMax(l), onClick: () => submitOffer(l, matchAmt, stf, true, bp) },
       { label: 'Let it go', secondary: true, onClick: () => { loseListing(l, `You blinked. ${l.address} went to the other buyer for ${fmt(rival)}.`); } },
     ]);
     return;
   }
 
-  const effective = amount * (stf ? 0.995 : 1);
+  const effective = amount * (stf ? 0.995 : 1) * (bp ? 0.997 : 1);
+  const opts = { stf: method === 'private' && stf, bp: method === 'private' && bp };
   if (effective >= vendorMin * 1.015 || amount >= asking) {
     dialog('Offer accepted 🎉', `“Congratulations — the vendor has accepted <b>${fmt(amount)}</b>. I'll send the contract through tonight.”<br><br>Next step: sign the Contract of Sale and pay the deposit.`, [
-      { label: 'Review & sign the contract', onClick: () => showContract(l, amount, method, { stf: method === 'private' && stf }) },
+      { label: 'Review & sign the contract', onClick: () => showContract(l, amount, method, opts) },
     ]);
   } else if (effective >= vendorMin * 0.965 && game.offerRound <= 3) {
     const counter = round1k(Math.min(asking, Math.max(vendorMin * 1.02, (amount + asking) / 2)));
     dialog('Vendor counters', `“They appreciate the offer but they're firm — they'd sign tonight at <b>${fmt(counter)}</b>.”`, [
-      { label: `Accept ${fmt(counter)}`, disabled: counter > playerMax(l), onClick: () => showContract(l, counter, method, { stf: method === 'private' && stf }) },
+      { label: `Accept ${fmt(counter)}`, disabled: counter > playerMax(l), onClick: () => showContract(l, counter, method, opts) },
       { label: 'Improve my offer', secondary: true, onClick: () => openOfferModal(l, `They countered at ${fmt(counter)}. Round ${game.offerRound + 1} — sharpen the pencil or walk.`) },
       { label: 'Walk away', secondary: true, onClick: () => { game.offerRound = 0; toast('You walked. The house stays on the market — for now.'); unfreeze(); } },
     ]);
@@ -599,7 +654,7 @@ function refreshLoanTypeRow(price) {
 
 function showContract(l, price, method, opts = {}) {
   freeze();
-  game.pendingContract = { listing: l, price, method, stf: !!opts.stf };
+  game.pendingContract = { listing: l, price, method, stf: !!opts.stf, bp: !!opts.bp };
   const deposit = Math.round(price * DEPOSIT_PCT);
   const settleDays = l.id === 'bungalow' ? 30 : 60;
   $('contract-rows').innerHTML = `
@@ -619,6 +674,9 @@ function showContract(l, price, method, opts = {}) {
     clauses += game.pendingContract.stf
       ? `<div class="clause"><b>Subject to finance:</b> if your lender declines or the valuation falls short, you may end this contract and recover the deposit.</div>`
       : `<div class="clause danger"><b>No finance clause:</b> you offered unconditionally. If the bank's valuation comes in low, the shortfall — or the deposit — is your problem.</div>`;
+    if (game.pendingContract.bp) {
+      clauses += `<div class="clause"><b>Subject to building & pest inspection:</b> if a written report discloses a major structural defect or active infestation, the purchaser may end this contract and recover the deposit.</div>`;
+    }
     clauses += `<div class="clause"><b>Cooling-off:</b> 3 clear business days, penalty 0.2% of the price (${fmt(price * COOLING_OFF_PENALTY)}).</div>`;
   }
   if (l.ownersCorp) {
@@ -648,14 +706,15 @@ $('contract-sign').addEventListener('click', () => {
 });
 
 function afterSigning(pc) {
-  const { listing: l, price, method, stf } = pc;
+  const { listing: l, price, method, stf, bp } = pc;
   game.pendingContract = null;
   if (method === 'private') {
     dialog('Cooling-off period', `Three business days tick by. The deposit's paid, the contract's signed — but in a VIC private sale you can still walk for a ${fmt(price * COOLING_OFF_PENALTY)} penalty (0.2%).<br><br>Second thoughts?`, [
-      { label: 'Stay the course', onClick: () => valuationCheck(l, price, stf) },
+      { label: 'Stay the course', onClick: () => bpConditionStep(l, price, stf, bp) },
       { label: `Cool off (forfeit ${fmt(price * COOLING_OFF_PENALTY)})`, danger: true, onClick: () => {
         game.savings -= Math.round(price * COOLING_OFF_PENALTY);
         game.offerRound = 0;
+        lesson('Cooling-off cost you 0.2% — cheap compared to the wrong house.');
         updateHUD();
         toast(`You cooled off. ${fmt(price * COOLING_OFF_PENALTY)} lighter, but free. The vendor relists.`, 5000);
         unfreeze();
@@ -666,28 +725,78 @@ function afterSigning(pc) {
   }
 }
 
+// the inspection you made the contract wait for
+function bpConditionStep(l, price, stf, bp) {
+  if (!bp || game.reports.has(l.id)) return valuationCheck(l, price, stf);
+  game.reports.add(l.id); // the inspector's knowledge is yours now, either way
+  game.savings -= REPORT_COST;
+  updateHUD();
+  const major = l.repairCost >= 15000;
+  if (!major) {
+    dialog('Building & pest condition — satisfied', `The inspector's report lands (${fmt(REPORT_COST)}): “${l.report}”<br><br>Nothing that triggers the clause. The condition is satisfied and the contract marches on.`, [
+      { label: 'On to finance approval', onClick: () => valuationCheck(l, price, stf) },
+    ]);
+    return;
+  }
+  const reduction = round1k(l.repairCost * 0.5);
+  dialog('Building & pest condition — problems found', `The inspector's report lands (${fmt(REPORT_COST)}): “${l.report}”<br><br>That's a <b>major defect</b> — your clause is live. Your solicitor lays out the options:`, [
+    { label: `Renegotiate: ${fmt(reduction)} off the price`, onClick: () => {
+      lesson('A building & pest condition paid for itself — defects became a discount.');
+      dialog('Deed of variation', `The vendor grumbles, then signs. New price: <b>${fmt(price - reduction)}</b>. This is why the clause goes in the offer.`, [
+        { label: 'Continue to finance approval', onClick: () => valuationCheck(l, price - reduction, stf) },
+      ]);
+    } },
+    { label: 'End the contract, deposit back', secondary: true, onClick: () => {
+      lesson('The building & pest clause let you walk from a lemon with your deposit intact.');
+      game.offerRound = 0;
+      toast(`Contract ended under the B&P condition. Deposit returned — and you keep the report. ${l.address} stays on the market.`, 5600);
+      unfreeze();
+    } },
+    { label: 'Proceed anyway (wear the repairs)', secondary: true, onClick: () => valuationCheck(l, price, stf) },
+  ]);
+}
+
+// the lender wants a certificate of currency before a dollar moves
+function insuranceStep(l, price, valCap) {
+  const quotes = l.ownersCorp
+    ? null // strata: the building is insured by the owners corporation
+    : [{ name: 'Budget cover', cost: 1180 }, { name: 'Comprehensive', cost: 1640 }];
+  if (!quotes) {
+    game.insurance = 0;
+    dialog('Insurance', `Apartment life perk: the <b>owners corporation insures the building</b> (it's in those fees). You'll want contents cover eventually, but the lender's box is already ticked.<br><br>House buyers don't get off this easy.`, [
+      { label: 'On to the final inspection', onClick: () => finalInspection(l, price, valCap) },
+    ]);
+    return;
+  }
+  dialog('Building insurance — before settlement, not after', `Your lender won't settle without a <b>certificate of currency</b> — proof the building is insured from day one, with the bank noted on the policy. Two quotes on the screen:`, [
+    { label: `Budget cover — ${fmt(1180)}/yr`, onClick: () => { game.insurance = 1180; finalInspection(l, price, valCap); } },
+    { label: `Comprehensive — ${fmt(1640)}/yr`, secondary: true, onClick: () => { game.insurance = 1640; finalInspection(l, price, valCap); } },
+  ]);
+}
+
 // The bank still has to value the place before it hands over the loan.
 function valuationCheck(l, price, stf, wasAuction = false) {
   const overpaid = price > l.trueValue * 1.045;
   if (!overpaid) {
     if (wasAuction && price > l.trueValue) toast('The valuer sucked their teeth, but your numbers held. Loan approved — formally, this time.', 4600);
-    finalInspection(l, price, null);
+    insuranceStep(l, price, null);
     return;
   }
   const s = settlement(price, game.savings, game.preApproval, game.fhb, l.trueValue, settleOpts(l));
   if (s.cashNeeded <= game.savings) {
     dialog('Valuation shortfall', `The bank's valuer says the place is worth <b>${fmt(l.trueValue)}</b> — not the ${fmt(price)} you're paying. The bank lends against <i>their</i> number, so you must find an extra <b>${fmt(Math.round(price - l.trueValue))}</b> in cash to bridge the gap.<br><br>You can cover it. It'll hurt.`, [
-      { label: 'Cover the gap and settle', onClick: () => finalInspection(l, price, l.trueValue) },
+      { label: 'Cover the gap and settle', onClick: () => { lesson('The bank lends against ITS valuation, not your price — the gap comes from your pocket.'); insuranceStep(l, price, l.trueValue); } },
     ]);
   } else if (stf) {
     dialog('Saved by the finance clause', `The valuation came in at <b>${fmt(l.trueValue)}</b> and the bank cut your loan. You can't bridge the gap — but your <b>subject-to-finance clause</b> lets you end the contract and take the deposit home.<br><br>This is why the clause exists.`, [
-      { label: 'Withdraw with deposit intact', onClick: () => { loseListing(l, 'Contract ended under the finance clause. Deposit returned. Lesson: banked.'); } },
+      { label: 'Withdraw with deposit intact', onClick: () => { lesson('Subject-to-finance let you walk from a low valuation with your deposit.'); loseListing(l, 'Contract ended under the finance clause. Deposit returned. Lesson: banked.'); } },
     ]);
   } else {
     const forfeit = Math.round(price * DEPOSIT_PCT);
     dialog('💥 The unconditional trap', `Valuation: <b>${fmt(l.trueValue)}</b>. Your loan shrank, you can't fund the gap, and you signed with <b>no finance clause</b>. You cannot complete the purchase.<br><br>The vendor keeps your deposit: <b>${fmt(forfeit)}</b>.`, [
       { label: 'Hand over the deposit', danger: true, onClick: () => {
         game.savings = Math.max(0, game.savings - forfeit);
+        lesson(`Unconditional + low valuation = ${fmt(forfeit)} gone. The finance clause exists for exactly this.`);
         updateHUD();
         loseListing(l, `Deposit forfeited: ${fmt(forfeit)}. An expensive way to learn what "unconditional" means.`);
       } },
@@ -1236,10 +1345,29 @@ function settle(l, price, valCap = null, extras = {}) {
   const levy = l.ownersCorp ? l.ownersCorp.levy : 0;
   const inspectionCost = extras.inspectionCost ?? 0;
   const penalty = extras.penalty ?? 0;
+  const insurance = game.insurance;
 
   game.savings = Math.max(0, Math.round(
-    s.cashLeft - l.repairCost - surpriseCost - levy - inspectionCost - penalty + allowance
+    s.cashLeft - l.repairCost - surpriseCost - levy - inspectionCost - penalty - insurance + allowance
   ));
+
+  // the lessons this purchase demonstrated
+  if (surprise) lesson(missed
+    ? 'The cheapest conveyancer "reviewed" the contract in 11 minutes — and missed the clause that cost you.'
+    : 'Unreviewed contracts hide special conditions. The solicitor review is the cheapest insurance in the process.');
+  if (l.repairCost >= 8000 && !game.reports.has(l.id)) lesson('No building & pest report meant the repair bill arrived as a surprise.');
+  if (s.fhbg) lesson(`The First Home Guarantee saved you roughly ${fmt(lmi(s.loan, s.price))} in LMI.`);
+  if (s.grant) lesson('FHOG: $10k for buying new under the cap — the apartment was priced $749k for a reason.');
+  if (levy) lesson(game.ocRead.has(l.id)
+    ? 'You read the owners corporation records, so the special levy was a line item, not a heart attack.'
+    : 'Never buy into an owners corporation without reading its records — special levies hide there.');
+  if (penalty) lesson('Cheap conveyancing missed the settlement booking — penalty interest is how vendors say thanks.');
+  if (game.rateRiseDone) lesson('The RBA moved mid-search and re-cut your budget. Borrow inside your buffer, not at its edge.');
+  if (game.comps[l.id]) {
+    const diff = price - game.comps[l.id].avg;
+    if (Math.abs(diff) <= game.comps[l.id].avg * 0.02) lesson('You valued it from comparable sales and paid fair. That is the entire skill.');
+    else if (diff > 0) lesson(`You paid ${fmt(diff)} over your own comparable-sales number. The comps were right there.`);
+  }
 
   const position = l.trueValue - price - surpriseCost - levy + allowance + s.grant;
   let verdictCls, verdictText;
@@ -1286,10 +1414,14 @@ function settle(l, price, valCap = null, extras = {}) {
   if (allowance) rows.push([`Allowance negotiated by ${game.solicitor.name.split(' — ')[0]}`, '−' + fmt(allowance)]);
   if (inspectionCost) rows.push(['Final-inspection issues you let slide', fmt(inspectionCost)]);
   if (penalty) rows.push(['⚠ Penalty interest (late settlement)', fmt(penalty)]);
+  if (insurance) rows.push(['Building insurance, year one', fmt(insurance)]);
+  const yearOne = 1900 + 1000 + insurance + (l.ownersCorp ? l.ownersCorp.feesQtr * 4 : 0) + Math.max(1500, Math.round(price * 0.004));
   $('res-costs').innerHTML = `<table class="costs">
     ${rows.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join('')}
     <tr class="total"><td>Cash remaining</td><td>${fmt(game.savings)}</td></tr>
-  </table>`;
+  </table>
+  <p class="sub">Owning costs beyond the mortgage — council rates, water service, insurance${l.ownersCorp ? ', OC fees' : ''}, and a maintenance buffer — run roughly <b>${fmt(yearOne)}/year</b> here. Budget for them or they budget for you.</p>
+  ${lessonsHTML()}`;
   $('res-continue').textContent = 'Move in 🔑';
   game.purchase = { listing: l, price, loan: s.loan, fhbg: s.fhbg };
   $('res-epilogue').textContent = 'Fast-forward 5 years ⏩';
@@ -1306,7 +1438,8 @@ function gameOver() {
   $('res-title').textContent = '📉 Priced out';
   $('res-sub').textContent = `Every home on Banksia Street sold to someone else. ${game.week} weeks of Saturdays, and nothing to show but sausage sizzle receipts.`;
   hide($('res-verdict'));
-  $('res-costs').innerHTML = `<p class="sub" style="margin-top:10px">The market rose ${((game.marketIndex - 1) * 100).toFixed(1)}% while you watched. Classic.</p>`;
+  lesson('Six homes came and went. In a rising market, the cost of waiting compounds weekly.');
+  $('res-costs').innerHTML = `<p class="sub" style="margin-top:10px">The market rose ${((game.marketIndex - 1) * 100).toFixed(1)}% while you watched. Classic.</p>${lessonsHTML()}`;
   $('res-continue').textContent = 'Try again next season';
   $('res-epilogue').textContent = 'See where 5 years of renting leads ⏩';
   show($('res-epilogue'));
@@ -1406,7 +1539,7 @@ function ownedEpilogue() {
     <tr><td>Cash & ${offset ? 'offset' : 'savings'}${ocDrag ? ' (after OC fees + levy)' : ''}</td><td>${fmt(cash)}</td></tr>
     <tr><td>If you'd rented & invested instead</td><td>${fmt(renterCash)}</td></tr>
     <tr class="total"><td>Net position vs renting</td><td>${delta >= 0 ? '+' : '−'}${fmt(Math.abs(delta))}</td></tr>
-  </table>`;
+  </table>${lessonsHTML()}`;
   $('res-continue').textContent = 'Play again';
   hide($('res-epilogue'));
   show($('result-panel'));
@@ -1431,7 +1564,7 @@ function pricedOutEpilogue() {
     <tr><td>Five years of rent, gone</td><td>${fmt(143000)}</td></tr>
     <tr><td>Your savings now</td><td>${fmt(savingsNow)}</td></tr>
     <tr class="total"><td>Still enough to get in? (need ~${fmt(cashNeeded)})</td><td>${savingsNow >= cashNeeded ? 'Just — go again' : 'Not in this suburb'}</td></tr>
-  </table>`;
+  </table>${lessonsHTML()}`;
   $('res-continue').textContent = 'Play again';
   hide($('res-epilogue'));
   show($('result-panel'));
@@ -1455,7 +1588,7 @@ function saveGame() {
       reports: [...game.reports], reviews: [...game.reviews],
       reviewMissed: [...game.reviewMissed], ocRead: [...game.ocRead],
       rateRiseDone: game.rateRiseDone, marketGrowth: game.marketGrowth, marketIndex: game.marketIndex,
-      agentNotes: game.agentNotes,
+      agentNotes: game.agentNotes, comps: game.comps, lessons: game.lessons, insurance: game.insurance,
       purchase: game.purchase ? { id: game.purchase.listing.id, price: game.purchase.price, loan: game.purchase.loan, fhbg: game.purchase.fhbg } : null,
       pos: { x: player.pos.x, z: player.pos.z, yaw: player.yaw },
       listings: Object.fromEntries(listings.map((l) => [l.id, {
@@ -1497,6 +1630,9 @@ function resumeGame(d) {
   game.ocRead = new Set(d.ocRead);
   game.purchase = d.purchase ? { listing: byId[d.purchase.id], price: d.purchase.price, loan: d.purchase.loan, fhbg: d.purchase.fhbg } : null;
   game.agentNotes = d.agentNotes ?? {};
+  game.comps = d.comps ?? {};
+  game.lessons = d.lessons ?? [];
+  game.insurance = d.insurance ?? 0;
   for (const [id, snap] of Object.entries(d.listings)) {
     const l = byId[id];
     if (!l) continue;
@@ -1556,6 +1692,7 @@ function toggleSummary() {
     if (game.reports.has(l.id)) notes.push(`B&P ✓ val ~${kfmt(l.trueValue)}${l.repairCost >= 20000 ? ' ⚠repairs' : ''}`);
     if (game.reviews.has(l.id)) notes.push(game.reviewMissed.has(l.id) ? 'reviewed “✓”' : (l.specialCondition ? 'contract ⚠' : 'contract ✓'));
     if (l.ownersCorp) notes.push(game.ocRead.has(l.id) ? 'OC read ⚠levy' : 'OC unread');
+    if (game.comps[l.id]) notes.push(`comps ~${kfmt(game.comps[l.id].avg)}`);
     if (l.isNew) notes.push('NEW·FHOG');
     for (const n of Object.values(game.agentNotes[l.id] ?? {})) notes.push(`🗣 ${n}`);
     return `<tr${sold && sold !== 'you' ? ' style="opacity:0.45"' : ''}>
@@ -1684,6 +1821,8 @@ window.__game = {
     ownersCorp: l.ownersCorp ?? null, sold: game.soldTo[l.id] ?? null,
   })),
   chat: (id, phone = false) => openChat(byId[id], phone),
+  buyComps: (id) => { if (!game.comps[id]) { game.savings -= COMPS_COST; game.comps[id] = generateComps(byId[id]); updateHUD(); } return game.comps[id]; },
+  lessons: () => [...game.lessons],
   ask: (qid) => {
     if (!chatListing) return false;
     askAgent(chatListing, chatQuestions(chatListing).find((q) => q.id === qid) ?? { id: qid, label: qid });
@@ -1707,7 +1846,7 @@ window.__game = {
   teleport: (x, z) => player.teleport(x, z),
   openPanel,
   startAuction,
-  offer: (id, amount, stf = true) => submitOffer(byId[id], amount, stf),
+  offer: (id, amount, stf = true, bp = false) => submitOffer(byId[id], amount, stf, false, bp),
   clickDialog: (labelPart) => {
     const btn = [...document.querySelectorAll('#dlg-btns .btn')].find((b) => b.textContent.includes(labelPart));
     btn?.click();

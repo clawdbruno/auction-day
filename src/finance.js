@@ -2,6 +2,7 @@
 // but simplified — this is a game, not financial or legal advice.
 
 export const REPORT_COST = 550;           // building & pest inspection
+export const COMPS_COST = 49;             // comparable-sales report — how you actually value a home
 export const OC_RECORDS_COST = 300;       // owners corporation certificate & records
 export const DEPOSIT_PCT = 0.10;          // payable on signing
 export const COOLING_OFF_PENALTY = 0.002; // 0.2% to walk during cooling-off (VIC private sale)

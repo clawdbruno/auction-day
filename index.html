@@ -288,8 +288,12 @@
       </div>
       <div class="features" id="lp-features"></div>
       <p class="desc" id="lp-desc"></p>
+      <div class="report-box hidden" id="lp-comps" style="background: rgba(90,160,200,0.13); border-color: rgba(140,200,255,0.4);">
+        <div class="rt" style="color: #8fd0ff;">Comparable sales — what nearby homes actually sold for</div>
+        <div id="lp-comps-body"></div>
+      </div>
       <div class="report-box hidden" id="lp-report">
-        <div class="rt">Building &amp; pest report + independent valuation</div>
+        <div class="rt">Building &amp; pest report</div>
         <div id="lp-report-body"></div>
       </div>
       <div class="report-box legal hidden" id="lp-review">
@@ -301,6 +305,7 @@
         <div id="lp-oc-body"></div>
       </div>
       <div class="btnrow">
+        <button class="btn secondary" id="lp-comps-btn"></button>
         <button class="btn secondary" id="lp-report-btn"></button>
         <button class="btn secondary" id="lp-review-btn"></button>
         <button class="btn secondary hidden" id="lp-oc-btn"></button>
@@ -322,6 +327,8 @@
       <div class="choicerow" id="offer-amounts"></div>
       <label class="check" id="offer-stf-label"><input type="checkbox" id="offer-stf" checked />
         Subject to finance <span style="color:#9fb0c8; font-size:12.5px">— if the bank's valuation lets you down, you can walk away with your deposit. Vendors like offers without it.</span></label>
+      <label class="check" id="offer-bp-label"><input type="checkbox" id="offer-bp" checked />
+        Subject to building &amp; pest <span style="color:#9fb0c8; font-size:12.5px">— the inspection happens after acceptance; major defects let you renegotiate or walk with your deposit.</span></label>
       <p class="sub">Private sales come with a 3-business-day cooling-off period (0.2% penalty). Auctions don't. This is your safest way to buy — use it.</p>
       <div class="btnrow">
         <button class="btn" id="offer-submit"></button>

@@ -29,23 +29,33 @@ understand what actually happens, in order, with real-ish numbers.
    local solicitor ($1,500, reads every page), or boutique firm ($2,400, catches
    everything and negotiates a price allowance for what it finds).
 4. **Research.** Walk into every house — interiors match the advertised
-   beds/baths with labelled rooms. Building & pest reports reveal true value and
-   defects. Contract & Section 32 reviews surface special conditions. For the
-   apartment: **owners corporation records** ($300) reveal quarterly fees, a thin
-   sinking fund, and a looming special levy you'll otherwise meet as a surprise.
+   beds/baths with labelled rooms. **Comparable sales reports** ($49) show what
+   nearby homes actually sold for — forming your own number is the core skill,
+   and the game scores you against it at settlement. **Building & pest reports**
+   ($550) reveal condition and repair bills (not value — that's your homework).
+   Contract & Section 32 reviews surface special conditions. For the apartment:
+   **owners corporation records** ($300) reveal quarterly fees, a thin sinking
+   fund, and a looming special levy you'll otherwise meet as a surprise.
 5. **Buy.** Three auctions (unconditional — the game explains why that's
    dangerous) and three private sales with offers, vendor counters, "best and
-   final" rival buyers, and the subject-to-finance decision.
+   final" rival buyers — and your conditions: **subject to finance** and
+   **subject to building & pest**. If the post-acceptance inspection finds major
+   defects, the B&P clause lets you renegotiate the price (deed of variation),
+   end the contract with your deposit back, or proceed with eyes open.
 6. **Sign.** A real Contract of Sale: 10% deposit, cooling-off (voided within 3
    days of an auction, per s31), OC clause if applicable — and you choose the
    loan structure (variable + offset / fixed / split) with the monthly repayment
    spelled out before you sign.
 7. **Settle.** Bank valuation first (shortfall → bridge the gap, escape via the
-   finance clause, or forfeit the deposit). Then the **final inspection** (missing
-   dishwasher, anyone?), **settlement day on PEXA** with a statement of
-   adjustments (prorated rates/water), penalty interest if your cheap conveyancer
-   misses the booking — and finally the keys, a full cost breakdown, and a verdict
-   against true market value.
+   finance clause, or forfeit the deposit). Then **building insurance** — the
+   lender wants a certificate of currency before settlement (apartment buyers:
+   the owners corporation already insures the building). Then the **final
+   inspection** (missing dishwasher, anyone?), **settlement day on PEXA** with a
+   statement of adjustments (prorated rates/water), penalty interest if your
+   cheap conveyancer misses the booking — and finally the keys, a full cost
+   breakdown including **year-one owning costs** (rates, water, insurance,
+   maintenance), a verdict against market value, and **“what this run just
+   taught you”** — a recap of every process lesson your choices demonstrated.
 
 Also in the simulation:
 
