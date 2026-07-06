@@ -80,7 +80,11 @@ And the street is a scene, not a set:
 - **Synthesised ambience** — kookaburra cackles, magpie warbles, and a two-stroke
   mower three backyards over. No samples, all WebAudio.
 - **Street dressing** — cars in driveways and parked kerbside, BANKSIA ST street
-  signs, numbered letterboxes.
+  signs, numbered letterboxes, concrete kerbs.
+- **The look** — ACES filmic tone mapping, a gradient sky dome with sun glow and
+  drifting low-poly clouds, patchy procedurally-textured Aussie lawns (the reno's
+  is dead), specular glass and car paint, per-tree colour variation with faceted
+  foliage, soft-biased shadows.
 - **Save/resume** — progress persists in localStorage; a resume button appears on
   the title screen mid-run. **M** opens your notes: every listing's status, price,
   and the research you've paid for, in one panel.

@@ -8,6 +8,88 @@ function mat(color, opts = {}) {
   return new THREE.MeshLambertMaterial({ color, ...opts });
 }
 
+function glassMat(color = 0xa8cfe0, opts = {}) {
+  return new THREE.MeshPhongMaterial({
+    color, shininess: 90, specular: 0xbfdfff, ...opts,
+  });
+}
+
+// patchy suburban grass — half lush, half January
+function grassTexture(repeat = 12) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#6a8a4c';
+  g.fillRect(0, 0, 256, 256);
+  const tones = ['#79975a', '#5d7c41', '#87975c', '#93a05e', '#647f46'];
+  for (let i = 0; i < 260; i++) {
+    g.fillStyle = tones[Math.floor(Math.random() * tones.length)];
+    g.globalAlpha = 0.05 + Math.random() * 0.1;
+    g.beginPath();
+    g.arc(Math.random() * 256, Math.random() * 256, 6 + Math.random() * 26, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function buildCloud() {
+  const g = new THREE.Group();
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x777777 });
+  const n = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n; i++) {
+    const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(1 + Math.random() * 0.8, 0), m);
+    puff.position.set(i * 1.5 - n * 0.75 + Math.random(), (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 1.6);
+    puff.scale.y = 0.4;
+    g.add(puff);
+  }
+  return g;
+}
+
+function buildSky(scene, sunDir) {
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(330, 20, 12),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        top: { value: new THREE.Color(0x4a86c9) },
+        horizon: { value: new THREE.Color(0xd6ecf5) },
+      },
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 top; uniform vec3 horizon; varying vec3 vP;
+        void main(){ float h = clamp(normalize(vP).y, 0.0, 1.0);
+        gl_FragColor = vec4(mix(horizon, top, pow(smoothstep(0.0, 0.55, h), 0.8)), 1.0); }`,
+    })
+  );
+  dome.renderOrder = -10;
+  scene.add(dome);
+
+  // sun glow
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,250,225,1)');
+  grad.addColorStop(0.25, 'rgba(255,244,200,0.55)');
+  grad.addColorStop(1, 'rgba(255,244,200,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sun = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+  }));
+  sun.position.copy(sunDir.clone().normalize().multiplyScalar(300));
+  sun.scale.set(110, 110, 1);
+  scene.add(sun);
+}
+
 function box(w, h, d, material, solid = false) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   m.castShadow = true;
@@ -172,7 +254,7 @@ function addWindow(g, trim, x, z, rotY, width = 1.3) {
   frame.position.y = 1.62;
   const glass = new THREE.Mesh(
     new THREE.BoxGeometry(width, 1.16, 0.18),
-    new THREE.MeshLambertMaterial({ color: 0xa8cfe0, transparent: true, opacity: 0.55 })
+    glassMat(0xa8cfe0, { transparent: true, opacity: 0.6 })
   );
   glass.position.y = 1.62;
   const sill = box(width + 0.3, 0.08, 0.34, mat(trim));
@@ -454,14 +536,17 @@ function buildFence(lotW, lotD, trim) {
 
 function buildGum(scale = 1) {
   const g = new THREE.Group();
+  const trunkColor = new THREE.Color(0xd9cfc0).offsetHSL(0, 0, (Math.random() - 0.5) * 0.08);
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.16 * scale, 0.28 * scale, 4.4 * scale, 7),
-    mat(0xd9cfc0)
+    mat(trunkColor)
   );
   trunk.position.y = 2.2 * scale;
   trunk.castShadow = true;
   g.add(trunk);
-  const leaf = mat(0x6d7d54);
+  const leafColor = new THREE.Color(0x6d7d54)
+    .offsetHSL((Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.07);
+  const leaf = new THREE.MeshLambertMaterial({ color: leafColor, flatShading: true });
   for (let i = 0; i < 4; i++) {
     const blob = new THREE.Mesh(new THREE.IcosahedronGeometry((1.1 + Math.random() * 0.7) * scale, 0), leaf);
     blob.position.set(
@@ -501,13 +586,17 @@ export function buildPerson(shirtColor) {
 
 export function buildCar(color) {
   const g = new THREE.Group();
-  const body = box(1.7, 0.5, 4.1, mat(color), true);
+  const paint = new THREE.MeshPhongMaterial({ color, shininess: 70, specular: 0x888888 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 4.1), paint);
+  body.castShadow = true;
+  body.userData.solid = true;
   body.position.y = 0.55;
   g.add(body);
-  const cabin = box(1.5, 0.5, 2.0, mat(color));
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 2.0), paint);
+  cabin.castShadow = true;
   cabin.position.set(0, 1.0, -0.2);
   g.add(cabin);
-  const glass = box(1.52, 0.32, 1.9, mat(0x9fc4d8));
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.32, 1.9), glassMat(0x7fa8c0));
   glass.position.set(0, 1.02, -0.2);
   g.add(glass);
   const wheelM = mat(0x1c1e21);
@@ -580,7 +669,12 @@ export function buildWorld(scene, listings, signTextFor) {
   const world = new THREE.Group();
   scene.add(world);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(280, 280), mat(0x5e7a44));
+  buildSky(scene, new THREE.Vector3(12, 80, 45));
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(280, 280),
+    new THREE.MeshLambertMaterial({ map: grassTexture(14), color: 0xf2f7ea })
+  );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   world.add(ground);
@@ -590,6 +684,25 @@ export function buildWorld(scene, listings, signTextFor) {
   road.position.y = 0.02;
   road.receiveShadow = true;
   world.add(road);
+
+  // kerbs — nothing says suburbia like concrete edging
+  for (const side of [-1, 1]) {
+    const kerb = box(0.28, 0.14, 180, mat(0xc4beb2));
+    kerb.position.set(side * 3.9, 0.07, 0);
+    kerb.castShadow = false;
+    world.add(kerb);
+  }
+
+  const clouds = [];
+  for (let i = 0; i < 8; i++) {
+    const cloud = buildCloud();
+    cloud.position.set((Math.random() - 0.5) * 320, 68 + Math.random() * 34, (Math.random() - 0.5) * 320);
+    const s = 5 + Math.random() * 7;
+    cloud.scale.set(s, s * 0.55, s);
+    cloud.userData.drift = 0.6 + Math.random() * 0.9;
+    world.add(cloud);
+    clouds.push(cloud);
+  }
 
   const dashMat = mat(0xd8d8d8);
   for (let z = -85; z <= 85; z += 6) {
@@ -650,8 +763,13 @@ export function buildWorld(scene, listings, signTextFor) {
     lotGroup.rotation.y = lot.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
     world.add(lotGroup);
 
-    const lawnColor = listing.id === 'reno' ? 0x8f8a56 : 0x6b8f4e;
-    const lawn = new THREE.Mesh(new THREE.PlaneGeometry(20, 22), mat(lawnColor));
+    const lawn = new THREE.Mesh(
+      new THREE.PlaneGeometry(20, 22),
+      new THREE.MeshLambertMaterial({
+        map: grassTexture(2.5),
+        color: listing.id === 'reno' ? 0xd9cf9a : 0xd2e8bc, // dead lawn vs mowed-for-the-photos
+      })
+    );
     lawn.rotation.x = -Math.PI / 2;
     lawn.position.y = 0.015;
     lawn.receiveShadow = true;
@@ -734,5 +852,5 @@ export function buildWorld(scene, listings, signTextFor) {
     }
   });
 
-  return { world, houses, solids };
+  return { world, houses, solids, clouds };
 }

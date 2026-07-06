@@ -77,23 +77,27 @@ renderer.setSize(viewW(), viewH());
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9ec8e8);
-scene.fog = new THREE.Fog(0x9ec8e8, 90, 220);
+scene.background = new THREE.Color(0xd6ecf5); // matches the sky-dome horizon
+scene.fog = new THREE.Fog(0xd6ecf5, 100, 260);
 
-const camera = new THREE.PerspectiveCamera(72, viewW() / viewH(), 0.1, 400);
+const camera = new THREE.PerspectiveCamera(72, viewW() / viewH(), 0.1, 700);
 
-scene.add(new THREE.HemisphereLight(0xcfe5ff, 0x5e7a44, 0.85));
-const sun = new THREE.DirectionalLight(0xfff2d8, 1.4);
+scene.add(new THREE.HemisphereLight(0xbfdcff, 0x6b7a4c, 0.75));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.9);
 sun.position.set(12, 80, 45);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0004;
+sun.shadow.radius = 4;
 Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 100, bottom: -100, far: 250 });
 scene.add(sun);
 
-const { houses, solids } = buildWorld(scene, listings, signTextFor);
+const { houses, solids, clouds } = buildWorld(scene, listings, signTextFor);
 const player = new Player(camera, renderer.domElement);
 player.solids = solids;
 const ambience = new Ambience();
@@ -1619,6 +1623,13 @@ renderer.domElement.addEventListener('click', () => {
 
 const clock = new THREE.Clock();
 
+function driftClouds(dt) {
+  for (const c of clouds) {
+    c.position.x += c.userData.drift * dt;
+    if (c.position.x > 190) c.position.x = -190;
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -1626,6 +1637,7 @@ function animate() {
   game.auction?.update(dt);
   updateOpenHomes(dt);
   updateArms(dt);
+  driftClouds(dt);
 
   if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
 
@@ -1718,6 +1730,7 @@ window.__game = {
     game.auction?.update(dt);
     updateOpenHomes(dt);
     updateArms(dt);
+    driftClouds(dt);
     if (game.rateRisePending && game.phase === 'explore' && noOverlaysOpen()) fireRateRise();
     renderer.render(scene, camera);
   },
